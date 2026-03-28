@@ -1,0 +1,22 @@
+{
+  "name": "claude-prompt-optimizer",
+  "version": "1.0.0",
+  "description": "LLM prompt quality reviewer and optimizer. Scores prompts against a research-backed 10-item checklist (AGENTIF NeurIPS 2025, ACL 2025, HuggingFace LLM-as-judge) and returns a revised version with every violation fixed.",
+  "author": {
+    "name": "dlxmax",
+    "url": "https://github.com/dlxmax"
+  },
+  "homepage": "https://github.com/dlxmax/claude-prompt-optimizer",
+  "repository": "https://github.com/dlxmax/claude-prompt-optimizer",
+  "license": "MIT",
+  "keywords": [
+    "prompts",
+    "prompt-engineering",
+    "agents",
+    "sycophancy",
+    "llm-judge",
+    "best-practices",
+    "compliance",
+    "validation"
+  ]
+}
