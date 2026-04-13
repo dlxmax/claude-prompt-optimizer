@@ -1,22 +1,23 @@
 # LLM Prompt Best Practices
 
-A reference guide for writing and revising prompts used by LLM agents. Covers directive compliance, anti-sycophancy, structured gates, and validation pass design. All examples use generic placeholders.
+A reference guide for writing and revising prompts used by LLM agents. Refreshed April 2026 against current frontier models (Claude Opus 4.6, GPT-5.4, Gemini 3.1 Pro). The goal is not abstract "compliance," it is prompts the model actually executes instead of silently skipping over directives. Covers task execution gates, anti-sycophancy, linguistic-analysis prompts, and validation pass design. All examples use generic placeholders.
 
 ---
 
 ## 1. The Empirical Case
 
-These numbers justify the techniques in this document.
+These numbers justify the techniques in this document. The headline problem is not that models refuse tasks, it is that they silently omit steps.
 
 | Finding | Source | Implication |
 |---|---|---|
-| State-of-the-art LLM: 87% compliance on simple benchmarks → 58.5% on real multi-constraint agentic instructions | AGENTIF, NeurIPS 2025 | Prompt structure is not optional for agent prompts |
-| Best model achieves only 27.2% full success on multi-constraint instructions | AGENTIF, NeurIPS 2025 | Condition, tool, and format constraints are hardest |
-| Fewer than 25% of reasoning traces comply with instructions, even when final outputs look correct | ReasonIF, Oct 2025 | Final output compliance alone is insufficient |
-| Performance drops 61.8% when prompts are rephrased with nuanced wording changes | IFEval++, 2025 | Exact wording of directives matters more than assumed |
-| Self-correction flips 58.8% of initially correct answers to wrong | ACL 2025 | Naive "check your work" prompts actively harm outputs |
-| ~29% sycophancy reduction achievable through prompt design alone, without fine-tuning | sparkco.ai, 2025 | Anti-sycophancy is an engineering problem, not just a model problem |
-| The "Wait" prefix before self-correction prompts reduces blind spot rate by 89.3% | arxiv 2507.02778, 2025 | A single word can unlock dormant self-correction capability |
+| Frontier models still skip 25 to 40 percent of multi-constraint directives on novel out-of-domain instructions (Qwen3.6 Plus 75.8%, Claude Opus 4.5 58%) | IFBench leaderboard, April 2026 | Even 2026 frontier models need structural scaffolding on real prompts |
+| Reasoning performance starts to degrade around 3,000 tokens even on models with 256K to 1M context windows | Prompt-bloat study, MLOps Community 2026 | Focus beats raw length; longer prompts degrade, they do not help |
+| One-shot often beats few-shot for LLM-as-judge tasks; additional examples hurt when label balance or order is off | Confident AI 2026, Label Your Data 2026 | Calibrate 1 to 3 examples per criterion, not 3 to 5 |
+| GPT-4 reaches 91.7 percent zero-shot accuracy on TOEFL11 native-language identification | Lotfi et al., arxiv 2312.07819 | Zero-shot is strong for linguistic-analysis prompts when features are named |
+| Self-correction flips 58.8 percent of initially correct answers to wrong | ACL 2025 | Naive "check your work" prompts actively harm outputs |
+| ~29 percent sycophancy reduction achievable through prompt design alone, without fine-tuning | sparkco.ai, 2025 | Anti-sycophancy is an engineering problem, not a model problem |
+| The "Wait" prefix before self-correction prompts reduces blind-spot rate by 89.3 percent | arxiv 2507.02778, 2025 | A single word can unlock dormant self-correction capability |
+| LLMLingua-2 compresses prompts 3x to 6x with maintained accuracy | LLMLingua-2, NAACL 2025 | Compress before decomposing when a prompt has grown heavy |
 
 ---
 
@@ -71,13 +72,22 @@ CORRECT:
 
 Numbered directives also allow targeted self-checking: "Before finishing, confirm you have followed directives 1–4."
 
-### 2.3 Stay Under ~1,500 Words Per Call
+### 2.3 Manage Prompt Length and Placement, Not a Hard Word Cap
 
-AGENTIF research found instruction compliance degrades sharply as prompt length grows. When your prompt (role + instructions + context + input) exceeds ~1,500 words:
+Earlier guidance in this document capped prompts at 1,500 words. That rule was derived from 2024 and 2025 models. It is no longer the right framing. Current frontier models accept 10,000-plus word prompts without structural failure, but output quality still peaks on focused prompts.
 
-- **Decompose:** Split into chained calls where earlier outputs feed later stages
-- **Summarize context:** Use only the context directly relevant to the current stage
-- **Separate evaluation:** Move validation to a dedicated second call rather than appending to the generation call
+The real 2026 constraints are three:
+
+1. **Reasoning degradation starts around 3,000 tokens**, regardless of whether the model advertises a 256K or 1M context window. Past that point, extra tokens rarely help and often hurt (Prompt-bloat study, MLOps Community 2026).
+2. **Lost-in-the-middle effects persist** on RoPE-based models. Information in the first 32K and last 16K tokens is retrieved reliably; the middle band is not. Place critical directives at both the start and the end of the prompt.
+3. **Practical high-quality retrieval window is 16K to 32K tokens** even for 128K and 1M context models (elvex 2026, devtk.ai 2026).
+
+Order of operations when a prompt is getting heavy:
+
+- **Focus first.** Strip context that is not load-bearing for the current step. Most prompt bloat is irrelevant background, not essential instruction.
+- **Compress second.** LLMLingua-2 and similar task-agnostic compressors cut prompt length 3x to 6x with no accuracy loss (LLMLingua-2, NAACL 2025). Summarization and keyphrase extraction are also valid.
+- **Decompose third.** Split into chained calls where earlier outputs feed later stages. Still the strongest single lever for multi-stage tasks.
+- **Place, always.** Put load-bearing directives in the first and last sections, never buried in the middle.
 
 ### 2.4 Place Long Context Before Instructions
 
@@ -123,13 +133,25 @@ Write in flowing prose paragraphs. Do not use markdown headers, bullet points, o
 
 For any task where you need exactly N outputs, generate N+2 and filter the weakest 2 in a separate step. This guarantees the target count is always met even after filtering failures or edge cases are removed.
 
+### 2.8 Few-Shot Examples: Use 1 to 3, Not 3 to 5
+
+Earlier guidance suggested 3 to 5 diverse examples. The 2026 research overrules that. Key findings:
+
+- **One-shot often beats few-shot** on LLM-as-judge tasks. Adding examples past the first can measurably hurt performance across major models (Confident AI 2026).
+- **Few-shot is unstable** with respect to example order, label balance, and count. Bias in the examples propagates directly into the model's judgments.
+- **When few-shot does help** (GPT-4 judge consistency went from 65.0 to 77.5 percent in one study), it only helps when the examples reflect the natural distribution of scores you expect at inference.
+
+New rule for evaluation prompts: **1 to 3 calibrated examples per criterion. Always pair PASS with FAIL. Balance ordering, and rotate which comes first across criteria.** If a single clear PASS-FAIL pair communicates the criterion, stop there. Do not pad with more examples hoping it will help, because in 2026 it often does not.
+
 ---
 
-## 3. Compliance Gates
+## 3. Task Execution Gates
+
+The most common failure mode in evaluation prompts is not that the model gives wrong answers. It is that the model silently omits a criterion entirely. Task execution gates are the fix: they turn each directive into an explicit, testable obligation the model must address in its output.
 
 ### 3.1 The Core Pattern
 
-A compliance gate is a named, binary criterion that an LLM output item must pass. Gates replace vague quality judgments with explicit, testable questions.
+A task execution gate is a named, binary criterion that an LLM output item must pass. Gates replace vague quality judgments with explicit, testable questions, and they force the model to answer each one rather than skipping past them.
 
 **Structure of one gate:**
 
@@ -321,7 +343,7 @@ This alone reduces correct-answer flips by 5–11% (ACL 2025). The reminder coun
 
 **Always include the original task.** The judge must see original instructions + output, never just the output. Without task context, the validator is guessing what "correct" means.
 
-**One criterion per call.** Combining "check accuracy, safety, and style" in one prompt degrades all three. Each additional criterion reduces scoring reliability.
+**One criterion per call (high-stakes), up to 3 bundled (low-stakes).** Combining "check accuracy, safety, and style" in one prompt degrades all three for high-stakes scoring. On current 2026 frontier models, bundling 2 to 3 named criteria in one call is acceptable for low-stakes filtering tasks. Keep it to one criterion per call whenever the score drives a downstream action.
 
 **Atomic checklist scoring.** Decompose vague criteria into binary sub-questions:
 
@@ -398,13 +420,111 @@ When choosing between two candidate outputs:
 
 Apply before deploying any prompt to an agent.
 
-1. **Tagged blocks** — Does every distinct section (role, instructions, context, input, output format) have its own descriptive XML tag?
-2. **Numbered directives** — Are all instructions numbered for individual traceability?
-3. **Length** — Is the prompt under ~1,500 words? If not, which stages can be split into separate calls?
-4. **Gate examples** — Does each evaluation criterion have a PASS example and a FAIL example embedded in the prompt?
-5. **Machine-parseable output** — Can every gate verdict be extracted with a regex? Is the output format defined with a concrete example?
-6. **Skeptical role** — Does the prompt assign a critical/evaluator role rather than a helpful/assistant role?
-7. **Do-instead-of-don't** — Are all prohibition instructions paired with a "instead, do" statement?
-8. **Validation model** — Is the validation pass using the same model as the generation pass? If yes: use structured gate scoring (not freeform critique) + "Wait" prefix + recency reminder at end.
-9. **Original task in validation** — Does the validation prompt include the original task at the top AND a reminder at the end?
-10. **One criterion per validation call** — Is each evaluation criterion assessed separately, not bundled with other criteria in a single holistic score?
+1. **Tagged blocks.** Does every distinct section (role, instructions, context, input, output format) have its own descriptive XML tag?
+2. **Numbered directives.** Are all instructions numbered for individual traceability?
+3. **Length and placement.** Is the prompt focused under ~3,000 tokens where feasible? Are critical directives placed at both the start and the end (not buried in the middle)? If the task is genuinely multi-stage, is it decomposed into chained calls?
+4. **Gate examples, calibrated count.** Does each evaluation criterion have 1 to 3 examples, with PASS and FAIL paired, ordering balanced? Not 3 to 5 diverse examples.
+5. **Machine-parseable output.** Can every gate verdict be extracted with a regex? Is the output format defined with a concrete example?
+6. **Skeptical role.** Does the prompt assign a critical/evaluator role rather than a helpful/assistant role?
+7. **Do-instead-of-don't.** Are all prohibition instructions paired with an "instead, do" statement?
+8. **Validation model.** Is the validation pass using the same model as the generation pass? If yes: use structured gate scoring (not freeform critique) + "Wait" prefix + recency reminder at end.
+9. **Original task in validation.** Does the validation prompt include the original task at the top AND a reminder at the end?
+10. **One criterion per validation call (high-stakes).** Is each high-stakes evaluation criterion assessed separately? Low-stakes filtering may bundle up to 3 criteria per call.
+11. **Linguistic-analysis path (conditional).** If the prompt evaluates properties of the writing itself (style, register, L1 transfer, authorship, human-vs-AI stylometry), does it: (a) enumerate explicit linguistic feature categories, (b) force reasoning before verdict, (c) require cited token or phrase evidence for each feature? See Section 7. This item is N/A for prompts that are not linguistic evaluations.
+
+---
+
+## 7. Prompts for Linguistic Analysis
+
+A growing class of evaluation prompts asks an LLM to judge the properties of writing itself rather than the content it conveys. Examples include native-language identification, register and style classification, L1 transfer fingerprinting, authorship attribution, genre fit, and human-versus-AI stylometry. These prompts have different failure modes from content-evaluation prompts, and they need their own construction rules.
+
+### 7.1 Why Linguistic Analysis Prompts Fail
+
+When asked for a holistic judgment ("is this L1 English speaker writing?"), frontier models produce confident answers that are poorly calibrated. They appear to succeed on easy cases and fail silently on hard ones. The mechanism is that the model is matching surface features without surfacing which features it used, so errors are invisible to the caller.
+
+At the same time, LLMs are genuinely strong at this class of task when prompted correctly. GPT-4 hit 91.7 percent zero-shot accuracy on the TOEFL11 native-language identification benchmark (Lotfi et al., arxiv 2312.07819). The gap between failure and success is prompt construction, not model capability.
+
+### 7.2 Five Rules for Linguistic Analysis Prompts
+
+1. **Enumerate feature categories explicitly.** Do not ask for a holistic judgment. Tell the model which linguistic features to inspect: spelling error patterns, syntactic structures, article and preposition usage, direct-translation artifacts, cohesion markers, lexical choice, morphological errors, punctuation habits. The named categories act as task execution gates (Section 3).
+
+2. **Force reasoning before verdict.** Require a `<reasoning>` block that must be completed before any verdict. Linguistic judgments produced without explicit reasoning are uncalibrated. This is a chain-of-thought requirement, not a politeness.
+
+3. **Require cited evidence.** Every feature the model claims to have observed must come with a cited token or phrase from the input. This creates an audit trail and surfaces hallucinated reasoning. If the model cannot cite the evidence, the feature observation is unreliable.
+
+4. **Prefer zero-shot when features are named.** When the feature categories are clearly defined, zero-shot performs well (TOEFL11 91.7 percent zero-shot). Add examples only when a specific criterion is genuinely ambiguous from its name alone, and then keep to 1 to 3 examples per criterion (Section 2.8).
+
+5. **Build an in-class iteration loop for closed-set outputs.** If the output must be from a fixed set (a specific L1 label, a specific genre), wrap the prompt in a loop: if the model returns a label outside the set, feed the response back with "that label is not in the set {VALID_LABELS}, choose again" until it converges. This is one of the few cases where same-model self-correction is reliable, because the check is a deterministic set-membership test.
+
+### 7.3 Template
+
+```
+<role>
+You are a forensic linguist. Your job is to identify which linguistic features
+are present in a piece of writing and cite the specific evidence. Do not
+produce a verdict until you have completed the reasoning block. Do not
+affirm or praise the writing before analyzing it.
+</role>
+
+<instructions>
+1. Read the sample in <input> carefully.
+2. For each feature listed in <features>, decide whether it is present.
+3. For every feature you mark as present, cite at least one specific token
+   or phrase from the input as evidence.
+4. Complete the <reasoning> block fully before producing <features_cited>
+   or <verdict>.
+5. Your verdict must be a single label drawn only from the set in <labels>.
+</instructions>
+
+<features>
+SPELLING_ERRORS: orthographic mistakes inconsistent with target variety
+SYNTACTIC_L1_TRANSFER: word order, article, or preposition patterns that
+   reflect another language's grammar
+DIRECT_TRANSLATION: multiword expressions calqued from another language
+COHESION_MARKERS: register or discourse markers atypical for the target
+LEXICAL_CHOICE: word choices that are unusual for a native writer
+</features>
+
+<labels>
+{VALID_LABEL_SET}
+</labels>
+
+<input>
+{WRITING_SAMPLE}
+</input>
+
+<output_format>
+<reasoning>
+step-by-step inspection of each feature category,
+with cited tokens or phrases from <input>
+</reasoning>
+
+<features_cited>
+SPELLING_ERRORS: yes|no, evidence: "..."
+SYNTACTIC_L1_TRANSFER: yes|no, evidence: "..."
+DIRECT_TRANSLATION: yes|no, evidence: "..."
+COHESION_MARKERS: yes|no, evidence: "..."
+LEXICAL_CHOICE: yes|no, evidence: "..."
+</features_cited>
+
+<verdict>LABEL</verdict>
+```
+
+Note: this template uses commas as delimiters. Avoid em dashes in real prompts, since downstream text-to-speech tooling cannot pronounce them.
+
+### 7.4 Feature Category Starter Pack
+
+Use these as a starting point and prune to the subset relevant to the task:
+
+| Task | Feature categories to enumerate |
+|---|---|
+| Native language identification | spelling errors, article/preposition usage, syntactic L1 transfer, direct-translation artifacts, punctuation habits |
+| Register / style classification | lexical formality, sentence length variance, cohesion markers, hedging, terminology density |
+| L1 transfer fingerprinting | word order, prepositional patterns, tense and aspect usage, determiner errors |
+| Human vs AI stylometry | sentence-length variance, lexical diversity, burstiness, hedge-word density, formulaic transitions, token-rank entropy patterns |
+| Authorship attribution | function-word frequencies, punctuation habits, signature vocabulary, sentence-start patterns |
+| Genre fit | register markers, discourse moves, audience-address patterns, typical structural slots |
+
+### 7.5 When Not To Use This Pattern
+
+This pattern is specifically for prompts that evaluate the properties of writing. Do not use it for prompts that evaluate the content of writing (factual accuracy, task completion, code correctness). Those belong in Sections 3 and 5.

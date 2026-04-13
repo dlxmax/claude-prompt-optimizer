@@ -1,6 +1,6 @@
 # Prompt Engineering Research Archive
 
-Compiled March 2026. Indexed by topic for fast recall in future prompt-related tasks.
+Compiled March 2026, refreshed April 2026 with IFBench, LLMLingua-2, 2026 few-shot findings, linguistic-analysis literature, and prompt-bloat results. Older entries that have been partially superseded are tagged in place. Indexed by topic for fast recall in future prompt-related tasks.
 
 ---
 
@@ -39,6 +39,8 @@ Sycophancy is a byproduct of RLHF training. Models learn that agreeable, validat
 ---
 
 ## Topic 2: Directive Compliance Benchmarks
+
+> **Status note (April 2026):** The AGENTIF headline numbers below were derived on GPT-4o-class models and are partially superseded by IFBench 2026 (see Topic 6). Keep AGENTIF as the origin story for the "decompose long instructions" finding, which has held up. Do not lead with the 58.5 percent stat in new writing.
 
 ### AGENTIF (NeurIPS 2025 Spotlight)
 
@@ -245,13 +247,17 @@ Source: Anthropic Claude 4.x prompting guide — docs.anthropic.com
 
 ### Prompt Length and Compliance
 
+> **Status note (April 2026):** The 1,500-word threshold below is superseded. See Topic 6 for current guidance.
+
 AGENTIF (NeurIPS 2025) found compliance degrades sharply with prompt length:
 - Instructions exceeding ~6,000 words: compliance approaches zero
-- Practical threshold for generation prompts: ~1,500 words before decomposing into chained calls
+- Practical threshold for generation prompts: ~1,500 words before decomposing into chained calls (2024 to 2025 models)
 
 ### Few-Shot Examples
 
-Models perform measurably better on example-inferred constraints than specification-only constraints (AGENTIF findings). Include 3–5 diverse examples in `<examples>` tags. More than 5 can introduce unintended pattern matching.
+> **Status note (April 2026):** The "3 to 5 diverse" rule below is superseded. See Topic 8.
+
+Models perform measurably better on example-inferred constraints than specification-only constraints (AGENTIF findings). Original recommendation was 3 to 5 diverse examples. Current guidance: 1 to 3 calibrated PASS+FAIL pairs per criterion (see Topic 8 for full 2026 evidence).
 
 ### Explain the "Why"
 
@@ -277,6 +283,154 @@ CoT improves compliance with multi-step directives by making reasoning visible a
 - Simple: append "Think step by step before answering"
 - Structured: use `<thinking>` / `<answer>` tags to separate reasoning from output
 - Evaluation gate: "Determine whether [condition] is true. Then, based on that determination, [action]."
+
+---
+
+## Topic 6: Modern Prompt Length, Placement, and Compression (2026 refresh)
+
+This topic replaces the 1,500-word cap in Topic 5.
+
+### Reasoning Degradation Starts Around 3,000 Tokens
+
+Source: MLOps Community, "The Impact of Prompt Bloat on LLM Output Quality" (2026).
+URL: mlops.community/the-impact-of-prompt-bloat-on-llm-output-quality/
+
+Key finding: reasoning quality starts to drop around 3,000 tokens even on models that advertise 128K to 1M context windows. Longer prompts do not help and often hurt when the extra tokens are not load-bearing.
+
+**Implication:** The relevant metric for prompt length is *focused tokens*, not the model's maximum context. "Room to grow" is not permission to grow.
+
+### Practical High-Quality Window Is 16K to 32K Tokens
+
+Sources:
+- elvex, "Context Length Comparison: Leading AI Models in 2026": elvex.com/blog/context-length-comparison-ai-models-2026
+- DevTk.AI, "LLM Context Windows Explained: 4K to 1M Tokens (2026)": devtk.ai/en/blog/llm-context-window-explained/
+- Prompt Quorum, "Long Context Local LLMs 2026": promptquorum.com/local-llms/long-context-local-llms
+
+Key finding: models with 128K to 1M advertised windows have a practical high-quality retrieval window of 16K to 32K tokens. A 128K model may reliably answer questions about content in the first 32K and last 16K tokens but miss the 40K to 80K middle band.
+
+### Lost-in-the-Middle Still Active on RoPE Models
+
+Source: "Lost in the Middle: How Language Models Use Long Contexts" (lecture slide set referencing 2023 original).
+URL: teapot123.github.io/files/CSE_5610_Fall25/Lecture_12_Long_Context.pdf
+
+Key finding: models trained with rotary positional encodings (Llama, Qwen, Mistral family) retrieve information best when it sits at the beginning or end of the context, worst when it sits in the middle. Some 2026 architectures reduce this effect but do not eliminate it.
+
+**Practical rule:** Place load-bearing directives in the first and last sections of a prompt. If you have one critical instruction, repeat it at the end.
+
+### IFBench 2026 Leaderboard
+
+Source: BenchLM, "IFBench Benchmark 2026": benchlm.ai/benchmarks/ifBench
+
+Key results as of April 7, 2026:
+- Qwen3.6 Plus: **75.8%**
+- Claude Opus 4.5: **58%**
+
+IFBench tests precise instruction following on 58 verifiable out-of-domain constraints. Unlike IFEval, it measures novel instruction compliance rather than familiar patterns. Frontier models are better than the 2025 AGENTIF numbers but still drop roughly 25 to 40 percent of directives on novel prompts.
+
+### Prompt Compression
+
+Sources:
+- LLMLingua-2, NAACL 2025: llmlingua.com/llmlingua2.html
+- "Prompt Compression for Large Language Models: A Survey", NAACL 2025: aclanthology.org/2025.naacl-long.368.pdf
+- "Prompt Compression in the Wild", arxiv 2604.02985
+
+Key findings:
+- LLMLingua-2 uses a BERT-level encoder for task-agnostic token-level compression. 3x to 6x faster than original LLMLingua.
+- Core compression techniques (summarization, keyphrase extraction, semantic chunking) achieve 5x to 20x compression while maintaining or improving accuracy.
+- Up to 18 percent faster inference and 75 percent lower GPU memory once prompts exceed 5K tokens.
+- Cost savings of 70 to 94 percent reported in production settings.
+
+**Order of operations when a prompt is heavy:** focus (strip non-load-bearing context), compress (LLMLingua-2 or summarization), decompose (chain calls). In that order.
+
+---
+
+## Topic 7: Prompts for Linguistic Analysis
+
+"Linguistic analysis" prompts are the class of evaluation prompts where the LLM judges properties of writing itself: native language, register, style, L1 transfer, authorship, genre, human versus AI origin. These tasks have different failure modes from content evaluation and deserve their own playbook.
+
+### Native Language Identification With LLMs
+
+Source: Lotfi, Maladry, Hoste, "Native Language Identification with Large Language Models", arxiv 2312.07819
+
+Key findings:
+- **GPT-4 reaches 91.7 percent zero-shot accuracy on the TOEFL11 benchmark** for native-language identification, setting a new state of the art.
+- LLMs can justify their predictions by pointing to spelling errors, syntactic patterns, and direct-translation artifacts.
+- LLMs are not constrained to a predefined label set, and iterative prompting can correct out-of-class predictions by feeding feedback back and asking for a refined label.
+
+**Implication:** Zero-shot works well when the task's linguistic features are clearly named. Use few-shot only when a specific criterion is ambiguous.
+
+### Multilingual Native Language Identification
+
+Source: "Multilingual Native Language Identification with Large Language Models", NAACL-SRW 2025: aclanthology.org/2025.naacl-srw.19.pdf
+
+Key finding: LLMs handle NLI across multiple target languages when prompted to attend to L1-specific feature categories. Performance is stronger when the prompt enumerates categories than when it asks for a single holistic judgment.
+
+### Native Language Prompting (NatLan)
+
+Source: "Unlocking the Non-Native Language Context Limitation: Native Language Prompting Facilitates Knowledge Elicitation", arxiv 2408.03544
+
+Key finding: decomposing native-language transfer simulation into semantic-transferring and answer-generating steps (handled by two distinct multilingual LLMs) improves non-English reasoning. Mentioned for completeness; less directly relevant to linguistic analysis prompt construction than Lotfi et al.
+
+### PEEM Framework
+
+Source: "PEEM: Prompt Engineering Evaluation Metrics for Interpretable Joint Evaluation of Prompts and Responses", arxiv 2603.10477
+
+Key finding: formal nine-axis rubric for evaluating prompt-response pairs. Prompt-level axes: clarity/structure, linguistic quality, fairness. Response-level axes: accuracy, coherence, relevance, objectivity, clarity, conciseness. Useful as a self-audit checklist for linguistic analysis prompts.
+
+### Linguistic Features Affect Prompt Effectiveness
+
+Source: "A comprehensive taxonomy of prompt engineering techniques for large language models", Frontiers of Computer Science, 2025: link.springer.com/article/10.1007/s11704-025-50058-z
+
+Key finding: morphological, syntactic, and lexico-semantic properties of prompt wording meaningfully change task performance. Exact phrasing matters, especially for linguistic tasks where the model is being asked to reason about those same categories.
+
+### Zero-Shot AI-Generated Text Detection (Feature Menu)
+
+Sources:
+- DetectGPT, arxiv 2301.11305
+- Fast-DetectGPT, OpenReview Bpcgcr8E8Z
+- Implicit Reward Models (IRM) for detection, OpenReview 2VdsYVXLDl
+- DetectLLM (log-rank information): github.com/mbzuai-nlp/DetectLLM
+- GPT-who (psycholinguistic UID features): referenced in ICTMCG Awesome-Machine-Generated-Text
+- ICTMCG Awesome-Machine-Generated-Text (living literature list): github.com/ICTMCG/Awesome-Machine-Generated-Text
+
+Key features that separate machine-generated from human text (useful as a feature menu for linguistic-analysis prompts):
+- Log-likelihood curvature (DetectGPT, Fast-DetectGPT)
+- Token log-rank distribution (DetectLLM)
+- Entropy
+- LLM-Deviation statistical signal (Multi-Feature Detection work)
+- Uniform Information Density (UID) and other psycholinguistic features (GPT-who)
+- Sentence-length burstiness and formulaic transitions
+
+**Implication:** When writing an LLM-as-judge prompt for human-versus-AI stylometry, enumerate these features in the prompt rather than asking for a holistic judgment. The model is more reliable when it knows what to look at.
+
+---
+
+## Topic 8: Few-Shot Calibration for LLM-as-Judge (2026)
+
+This topic replaces the "3 to 5 diverse examples" guidance in Topic 5.
+
+### One-Shot Often Beats Few-Shot
+
+Source: Confident AI, "LLM-as-a-Judge Simply Explained": confident-ai.com/blog/why-llm-as-a-judge-is-the-best-llm-evaluation-method
+
+Key finding: across major models on code evaluation tasks, one-shot outperforms few-shot, and performance declines as more examples are added. The best count is usually the smallest count that conveys the criterion.
+
+### Few-Shot Instability
+
+Source: Label Your Data, "LLM as a Judge: A 2026 Guide to Automated Model Assessment": labelyourdata.com/articles/llm-as-a-judge
+
+Key findings:
+- Performance with few-shot prompts is unstable when changing label balance, example order, or number of examples.
+- Biased examples propagate directly into the model's judgments. Too many negatives skews negative, a single trailing negative skews negative.
+- Few-shot did lift GPT-4 judge consistency from 65.0 to 77.5 percent in one calibrated study, but only when examples reflected the natural distribution of scores.
+
+**Practical rule:** Use 1 to 3 examples per criterion, always pair PASS with FAIL, balance the ordering, and rotate which one comes first across criteria. If a single PASS-FAIL pair conveys the criterion, stop there.
+
+### Sources
+
+- Confident AI (LLM-as-judge overview, 2026): confident-ai.com/blog/why-llm-as-a-judge-is-the-best-llm-evaluation-method
+- Label Your Data (LLM-as-judge 2026 guide): labelyourdata.com/articles/llm-as-a-judge
+- Evidently AI LLM-as-judge guide: evidentlyai.com/llm-guide/llm-as-a-judge
 
 ---
 
@@ -316,3 +470,23 @@ CoT improves compliance with multi-step directives by making reasoning visible a
 | Google Gemini prompting strategies | Docs | ai.google.dev/gemini-api/docs/prompting-strategies | 2025 |
 | Gemini 3 prompting guide | Google Cloud | docs.cloud.google.com/vertex-ai/generative-ai/docs/start/gemini-3-prompting-guide | 2025 |
 | Lakera prompt engineering guide | Guide | lakera.ai/blog/prompt-engineering-guide | 2026 |
+| IFBench leaderboard (2026) | Benchmark | benchlm.ai/benchmarks/ifBench | April 2026 |
+| LLMLingua-2 | Paper/site | llmlingua.com/llmlingua2.html | NAACL 2025 |
+| Prompt Compression Survey | NAACL 2025 | aclanthology.org/2025.naacl-long.368.pdf | 2025 |
+| Prompt Compression in the Wild | arxiv | arxiv.org/abs/2604.02985 | 2026 |
+| MLOps Community prompt-bloat study | Post | mlops.community/the-impact-of-prompt-bloat-on-llm-output-quality/ | 2026 |
+| elvex context length comparison 2026 | Post | elvex.com/blog/context-length-comparison-ai-models-2026 | 2026 |
+| DevTk.AI LLM context windows 2026 | Post | devtk.ai/en/blog/llm-context-window-explained/ | 2026 |
+| Prompt Quorum local long-context LLMs | Post | promptquorum.com/local-llms/long-context-local-llms | 2026 |
+| NLI with LLMs (Lotfi et al.) | arxiv | arxiv.org/abs/2312.07819 | 2023 (baseline) |
+| Multilingual NLI with LLMs | NAACL-SRW 2025 | aclanthology.org/2025.naacl-srw.19.pdf | 2025 |
+| Native Language Prompting (NatLan) | arxiv | arxiv.org/abs/2408.03544 | 2024 |
+| PEEM framework | arxiv | arxiv.org/html/2603.10477 | 2026 |
+| Frontiers of Computer Science prompt taxonomy | Journal | link.springer.com/article/10.1007/s11704-025-50058-z | 2025 |
+| DetectGPT | arxiv | arxiv.org/abs/2301.11305 | 2023 (baseline) |
+| Fast-DetectGPT | OpenReview | openreview.net/forum?id=Bpcgcr8E8Z | 2024 |
+| Implicit Reward Models for detection (IRM) | OpenReview | openreview.net/forum?id=2VdsYVXLDl | 2024 |
+| DetectLLM | GitHub | github.com/mbzuai-nlp/DetectLLM | 2024 |
+| ICTMCG Machine-Generated Text resources | GitHub | github.com/ICTMCG/Awesome-Machine-Generated-Text | ongoing |
+| Confident AI LLM-as-judge 2026 | Guide | confident-ai.com/blog/why-llm-as-a-judge-is-the-best-llm-evaluation-method | 2026 |
+| Label Your Data LLM-as-judge 2026 | Guide | labelyourdata.com/articles/llm-as-a-judge | 2026 |
