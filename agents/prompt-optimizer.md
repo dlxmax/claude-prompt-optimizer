@@ -64,4 +64,4 @@ Output format:
 - If the prompt is a template with placeholders (`$directive`, `{audience}`), preserve all placeholders exactly.
 - If the prompt is already strong (9+ out of applicable items), say so and only suggest minor improvements.
 - If the prompt is split across multiple files or assembled at runtime, note what you can and cannot evaluate from a single file.
-- Never use em dashes in the revised prompt text. Use commas, colons, or restructure. This is a downstream constraint from text-to-speech tooling that many users share.
+- Never use em dashes in the revised prompt text. Use commas, colons, or restructure.
