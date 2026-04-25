@@ -21,7 +21,7 @@ Do not read `PROMPT_RESEARCH.md`, `README.md`, or any other bundled file. The ch
 **Step 2: Read the prompt under review.**
 The caller will either provide the prompt text directly or give you a file path. Read it.
 
-**Step 3: Score against the 11-item checklist.**
+**Step 3: Score against the 12-item checklist.**
 For each item, output one line:
 
 ```
@@ -30,7 +30,7 @@ For each item, output one line:
 
 `[x]` = passes. `[ ]` = fails (needs fix). `[N/A]` = does not apply to this prompt type.
 
-The 11 items:
+The 12 items:
 1. **Tagged blocks.** Distinct sections wrapped in XML-style tags.
 2. **Numbered directives.** All instructions numbered for traceability.
 3. **Length and placement.** Focused under ~3,000 tokens where feasible, critical directives at start and end (not buried in the middle), decomposed into chained calls if genuinely multi-stage. The 1,500-word cap from earlier versions of this guide is retired. Flag bloat, not size alone.
@@ -42,8 +42,9 @@ The 11 items:
 9. **Original task in validation.** Validation prompt includes the original task at top and as a reminder at the end.
 10. **One criterion per call (high-stakes) or up to 3 bundled (low-stakes).** High-stakes scoring isolates each criterion in its own call; low-stakes filtering may bundle 2 or 3 named criteria.
 11. **Linguistic-analysis path (conditional).** Applies only when the prompt evaluates properties of the writing itself (style, register, L1 transfer, authorship, human-vs-AI stylometry, genre fit). Required for that class: (a) enumerate explicit linguistic feature categories, (b) force reasoning before verdict, (c) require cited token or phrase evidence per feature. Mark N/A if the prompt does not evaluate writing properties.
+12. **Sampling and determinism for judges (conditional).** Applies to high-stakes judge prompts. Flag prompts that rely on a single-pass judge call without N>=3 sampling and majority vote. Flag any deployment that depends on T=0 + seed for reproducibility, especially for Gemini 2.5 Pro and Gemini 3.x (T=0 is non-deterministic on Gemini 2.5 and actively discouraged on Gemini 3.x, where T=1.0 is the recommended default). Where stakes are highest, prefer multi-model consensus (e.g., Gemini Flash + Claude Sonnet) over single-model tuning. Mark N/A for low-stakes filtering and for non-judge prompts.
 
-Items 8 through 10 apply only to validation or second-pass prompts. Mark them N/A for generation-only prompts. Item 11 applies only to linguistic-analysis prompts.
+Items 8 through 10 apply only to validation or second-pass prompts. Mark them N/A for generation-only prompts. Item 11 applies only to linguistic-analysis prompts. Item 12 applies only to judge prompts where stakes warrant multi-sample or multi-model deployment.
 
 **Step 4: Produce the revised prompt.**
 Fix every failing item. Preserve the original intent and all domain-specific content. Only change structure, framing, and execution patterns. For length, do not blindly cut to a word count: diagnose whether the problem is bloat (strip non-load-bearing context), middle placement (reorder), or genuine multi-stage work (decompose).
@@ -54,7 +55,7 @@ Mark each change with a brief inline comment explaining what was fixed and why (
 Output format:
 
 ```
-## Checklist Score: N/11 (or N/10 if item 11 is N/A)
+## Checklist Score: N/12 (subtract any items marked N/A)
 
 [checklist lines from Step 3]
 

@@ -434,6 +434,72 @@ Key findings:
 
 ---
 
+## Topic 9: Gemini 2.5 / 3.x Judge Behavior (2026)
+
+Gemini-specific findings on LLM-as-judge non-determinism. Where Gemini diverges from Claude/GPT-derived best practices, the Gemini findings take precedence for Gemini deployments. The general patterns in Topics 3, 4, and 8 still hold for Claude and GPT judges.
+
+### Determinism Controls Are Weaker Than on Claude/GPT
+
+Source: Google AI Developers Forum, "The Gemini API is Exhibiting Non-Deterministic Behavior for the Gemini-2.5-Pro Model" (Jan 2026):
+discuss.ai.google.dev/t/the-gemini-api-is-exhibiting-non-deterministic-behavior-for-the-gemini-2-5-pro-model.../101331
+
+Key findings:
+- Gemini 2.5 Pro returns different outputs for identical requests with fixed `seed`, low `temperature`, and fixed `thinking_budget`. Reported example: same JSON-schema request returned an empty array on the first call and `["11"]` on the second.
+- Google documents `seed` as best-effort, not guaranteed. Changing models or parameters can vary results even with identical seed.
+- **Gemini 3.x docs explicitly recommend `temperature: 1.0` (default).** Setting T below 1.0 can cause looping or degraded output. The standard "set T=0 for reproducible eval" pattern fails on Gemini 3.x.
+
+Implication: Do not rely on T=0 + seed for judge reproducibility on Gemini. Use multi-sample voting or multi-model consensus instead.
+
+### Rating Roulette: Single-Pass Judges Are Unreliable Across All Models
+
+Source: Haldar & Hockenmaier, "Rating Roulette: Self-Inconsistency in LLM-As-A-Judge Frameworks", EMNLP 2025: arxiv.org/pdf/2510.27106
+
+Key finding: All major LLM judges, Gemini included, show low intra-rater reliability. Repeated runs of the same judge prompt on identical input produce inconsistent ratings, in some setups close to random. Affects single-pass judging across families.
+
+Implication: For high-stakes judge calls, sample N>=3 and aggregate by majority or confidence-weighted vote (CISC).
+
+### Gemini 2.5 Pro: Strong on Easy, Collapses on Hard
+
+Source: Feng et al., "Are We on the Right Way to Assessing LLM-as-a-Judge?" (Sage benchmark), arxiv 2512.16041, Dec 2025: arxiv.org/html/2512.16041v1
+
+Key findings:
+- On Sage local-consistency (IPI) and global-consistency (TOV) metrics, Gemini 2.5 Pro is among the most consistent judges on the easy split.
+- On Sage-Hard (subtle pairwise differences), Gemini 2.5 Pro consistency degrades roughly 200%, matching GPT-5. Even top judges fail ~25% of hard pairwise comparisons.
+- Hyperparameter settings (including temperature) significantly affect judge behavior; results are not stable across configurations.
+
+Implication: Gemini judges are acceptable on obvious distinctions but unreliable on nuanced comparisons. Multi-sample or human-verify on fine-grained quality differences.
+
+### Gemini Position Bias Is Incoherent, Not Directional
+
+Source: Shi et al., "Judging the Judges: A Systematic Study of Position Bias in LLM-as-a-Judge", ACL/IJCNLP 2025: arxiv.org/html/2406.07791v7
+
+Key finding: Gemini judges show "rather low mutual agreement and minimal familial property" relative to GPT-4 family and Claude-3-Opus. Position-bias direction is not consistent (sometimes first, sometimes last, no coherent pattern), so the standard A→B and B→A swap-and-count debiasing is less effective than on Claude or GPT.
+
+Implication: Position-swap remains useful as a baseline, but Gemini judges benefit more from multi-sampling and rubric-based scoring than from positional debiasing alone.
+
+### Extended Thinking on Gemini Does Not Stabilize Judge Verdicts
+
+Sources:
+- Gemini 3.1 Pro `thinking_level` documentation, Feb 2026: developers.googleblog.com/en/gemini-2-5-thinking-model-updates/
+- "How to Use Thinking Mode in Gemini 3 for Complex Reasoning Tasks", Feb 2026: oneuptime.com/blog/post/2026-02-17-how-to-use-thinking-mode-in-gemini-3-for-complex-reasoning-tasks/view
+
+Key findings:
+- Gemini 3.1 Pro replaces `thinking_budget` with `thinking_level` (LOW/MEDIUM/HIGH).
+- Official guidance reserves HIGH for tasks where extended reasoning directly drives output quality (proofs, complex synthesis), not generic eval.
+- Gemini 2.5 Deep Think runs parallel hypotheses, qualitatively different from sequential CoT in Claude/GPT. No published ablation shows this pattern improves judge consistency; it may add variance.
+
+Implication: Do not assume HIGH thinking on Gemini judges improves verdict stability. Validate against a no-thinking baseline on a small dataset before enabling it on a judge prompt.
+
+### Multi-Model Consensus Beats Single-Model Tuning
+
+Source: Practitioner consensus across 2025 and 2026 eval-platform writeups (Vellum, Braintrust, Langfuse, Promptfoo) summarized in Sage benchmark and Rating Roulette discussions.
+
+Key finding: Combining two or more judges from different families (e.g., Gemini Flash + Claude Sonnet, or Gemini + GPT) reduces single-model bias more than any per-model tuning. Family-specific evaluation personalities partially cancel.
+
+Implication: For high-stakes judge calls, multi-model consensus is the strongest single lever, ahead of parameter tuning, swap-and-count, or thinking-level adjustment.
+
+---
+
 ## Full Source List
 
 | Source | Type | URL | Date |
@@ -490,3 +556,9 @@ Key findings:
 | ICTMCG Machine-Generated Text resources | GitHub | github.com/ICTMCG/Awesome-Machine-Generated-Text | ongoing |
 | Confident AI LLM-as-judge 2026 | Guide | confident-ai.com/blog/why-llm-as-a-judge-is-the-best-llm-evaluation-method | 2026 |
 | Label Your Data LLM-as-judge 2026 | Guide | labelyourdata.com/articles/llm-as-a-judge | 2026 |
+| Gemini API non-determinism (Google Forum) | Forum | discuss.ai.google.dev/t/the-gemini-api-is-exhibiting-non-deterministic-behavior-for-the-gemini-2-5-pro-model-it-is-producing-different-outputs-for-identical-requests-even-when-a-fixed-seed-is-provided-along-with-a-constant-temperature-this-behavior-has-been-reliably-rep/101331 | Jan 2026 |
+| Rating Roulette (judge self-inconsistency) | EMNLP 2025 | arxiv.org/pdf/2510.27106 | 2025 |
+| Sage benchmark (Are We on the Right Way to Assessing LLM-as-a-Judge?) | arxiv | arxiv.org/html/2512.16041v1 | Dec 2025 |
+| Judging the Judges (position bias systematic study) | ACL/IJCNLP 2025 | arxiv.org/html/2406.07791v7 | 2025 |
+| Gemini 2.5 Thinking Model Updates | Google Devs Blog | developers.googleblog.com/en/gemini-2-5-thinking-model-updates/ | Feb 2026 |
+| Gemini 3 Thinking Mode usage notes | Blog | oneuptime.com/blog/post/2026-02-17-how-to-use-thinking-mode-in-gemini-3-for-complex-reasoning-tasks/view | Feb 2026 |

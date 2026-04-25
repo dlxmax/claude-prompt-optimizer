@@ -12,16 +12,17 @@ Most LLM prompts are written by feel. Frontier models in April 2026 do not refus
 - **One-shot often beats few-shot** for LLM-as-judge tasks. The old "3 to 5 diverse examples" rule is retired; 1 to 3 calibrated PASS+FAIL pairs per criterion is current. (Confident AI 2026, Label Your Data 2026)
 - **GPT-4 reaches 91.7 percent zero-shot** on native-language identification when the prompt names the linguistic features to attend to. Linguistic analysis prompts need their own playbook. (Lotfi et al.)
 - **~29 percent sycophancy reduction** is achievable through prompt structure alone, no fine-tuning needed. (sparkco.ai)
+- **All frontier judges are unreliable on a single pass** ("rating roulette") — high-stakes judge calls need N>=3 sampling. On Gemini 2.5 Pro and Gemini 3.x, T=0 + seed does not give reproducible output; on Gemini 3.x, T=0 is actively discouraged. Multi-model consensus beats single-model tuning. (Rating Roulette EMNLP 2025; Sage benchmark Dec 2025; Google AI Forum Jan 2026)
 
 ## What This Agent Does
 
 When invoked, the prompt-optimizer agent:
 
 1. Reads `PROMPT_BEST_PRACTICES.md` (bundled)
-2. Scores your prompt against an **11-item checklist**
+2. Scores your prompt against a **12-item checklist**
 3. Returns a **revised version** with every violation fixed and annotated
 
-### The 11-Item Checklist
+### The 12-Item Checklist
 
 | # | Item | What it checks |
 |---|---|---|
@@ -36,8 +37,9 @@ When invoked, the prompt-optimizer agent:
 | 9 | Original task in validation | Validation includes original task + end reminder |
 | 10 | One criterion per call (high-stakes) | High-stakes scoring isolates each criterion; low-stakes may bundle up to 3 |
 | 11 | Linguistic-analysis path | If the prompt evaluates properties of writing itself: enumerate features, reason before verdict, cite evidence |
+| 12 | Sampling and determinism for judges | High-stakes judges use N>=3 sampling + majority vote; do not rely on T=0 + seed (broken on Gemini 2.5/3.x); prefer multi-model consensus when stakes warrant |
 
-Items 8 to 10 only apply to validation or second-pass prompts. Item 11 only applies to linguistic-analysis prompts (style, register, L1 transfer, authorship, human-vs-AI stylometry, genre fit).
+Items 8 to 10 only apply to validation or second-pass prompts. Item 11 only applies to linguistic-analysis prompts (style, register, L1 transfer, authorship, human-vs-AI stylometry, genre fit). Item 12 only applies to high-stakes judge prompts.
 
 ## Installation
 
@@ -82,7 +84,7 @@ The agent triggers automatically when you write or revise LLM prompts (if auto-i
 ### Example Output
 
 ```
-## Checklist Score: 6/11
+## Checklist Score: 6/12
 
 [x] Tagged blocks: sections wrapped in <role>, <instructions>, <output_format>
 [x] Numbered directives: 5 directives numbered
@@ -95,6 +97,7 @@ The agent triggers automatically when you write or revise LLM prompts (if auto-i
 [N/A] Original task in validation
 [ ] One criterion per call: 3 criteria bundled in one high-stakes prompt
 [N/A] Linguistic-analysis path: prompt evaluates content, not writing properties
+[N/A] Sampling and determinism for judges: this prompt is generation, not high-stakes judging
 
 ## Key Changes
 - Stripped ~1,500 tokens of non-load-bearing background (item 3)
@@ -127,6 +130,11 @@ The agent triggers automatically when you write or revise LLM prompts (if auto-i
 - [Native Language Identification with LLMs (Lotfi et al.)](https://arxiv.org/abs/2312.07819): GPT-4 zero-shot 91.7 percent TOEFL11
 - [Multilingual NLI with LLMs, NAACL-SRW 2025](https://aclanthology.org/2025.naacl-srw.19.pdf): feature-aware linguistic analysis prompting
 - [Fast-DetectGPT](https://openreview.net/forum?id=Bpcgcr8E8Z) and the [DetectGPT family](https://arxiv.org/abs/2301.11305): feature menu for human-vs-AI stylometry prompts
+- [Rating Roulette, EMNLP 2025](https://arxiv.org/pdf/2510.27106): single-pass judges are unreliable across all models; need N>=3 sampling
+- [Sage benchmark, Dec 2025](https://arxiv.org/html/2512.16041v1): Gemini 2.5 Pro is strong on easy cases but degrades ~200% on hard pairwise
+- [Google AI Forum: Gemini 2.5 Pro non-determinism, Jan 2026](https://discuss.ai.google.dev/t/the-gemini-api-is-exhibiting-non-deterministic-behavior-for-the-gemini-2-5-pro-model-it-is-producing-different-outputs-for-identical-requests-even-when-a-fixed-seed-is-provided-along-with-a-constant-temperature-this-behavior-has-been-reliably-rep/101331): T=0 + seed is not reproducible on Gemini
+- [Gemini 2.5 Thinking Model Updates, Feb 2026](https://developers.googleblog.com/en/gemini-2-5-thinking-model-updates/): Gemini 3.x recommends T=1.0 default; thinking_level guidance
+- [Judging the Judges, ACL/IJCNLP 2025](https://arxiv.org/html/2406.07791v7): Gemini position bias is incoherent, swap-and-count is less effective
 
 **Still load-bearing:**
 - [AGENTIF](https://arxiv.org/abs/2505.16944): NeurIPS 2025 decomposition finding (headline compliance numbers superseded by IFBench 2026)

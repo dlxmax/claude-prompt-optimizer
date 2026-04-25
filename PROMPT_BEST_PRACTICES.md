@@ -18,6 +18,9 @@ These numbers justify the techniques in this document. The headline problem is n
 | ~29 percent sycophancy reduction achievable through prompt design alone, without fine-tuning | sparkco.ai, 2025 | Anti-sycophancy is an engineering problem, not a model problem |
 | The "Wait" prefix before self-correction prompts reduces blind-spot rate by 89.3 percent | arxiv 2507.02778, 2025 | A single word can unlock dormant self-correction capability |
 | LLMLingua-2 compresses prompts 3x to 6x with maintained accuracy | LLMLingua-2, NAACL 2025 | Compress before decomposing when a prompt has grown heavy |
+| All LLM judges show low intra-rater reliability; single-pass judge scores are "almost random" on repeat runs | Rating Roulette, EMNLP 2025 | High-stakes judge calls need N>=3 samples with majority vote, not single-pass |
+| Gemini 2.5 Pro produces different outputs for identical requests with fixed seed and temperature; on Gemini 3.x, T=0 risks looping and degraded output | Google AI Developers Forum (Jan 2026); Gemini 3.x docs | Do not rely on T=0 + seed for judge determinism, especially on Gemini |
+| Gemini 2.5 Pro is strongest on easy judge cases but its consistency degrades ~200% on hard pairwise comparisons (~25% failure rate matches GPT-5) | Sage benchmark, arxiv 2512.16041, Dec 2025 | Multi-sample or human-verify Gemini judges on nuanced comparisons |
 
 ---
 
@@ -424,9 +427,23 @@ Evaluate only the criterion above, not overall quality.
 
 When choosing between two candidate outputs:
 
-- **Position bias:** Evaluate both (A, B) and (B, A) orderings. Only count consistent wins (~40% inconsistency on position alone in GPT-4 on pairwise tasks).
+- **Position bias:** Evaluate both (A, B) and (B, A) orderings. Only count consistent wins (~40% inconsistency on position alone in GPT-4 on pairwise tasks). **Caveat for Gemini judges:** Gemini's position bias is incoherent rather than directional, so swap-and-count is less effective than on Claude/GPT. Fall back to multi-sample voting or a multi-model consensus (Section 5.8).
 - **Verbosity bias:** State explicitly: `"Length is not a quality signal. A shorter answer that fully addresses the criterion scores higher than a longer one that does not."`
 - **Self-preference bias:** Use a different model as judge when possible. Most models rate their own output higher when sources are anonymized.
+
+### 5.8 Model-Specific Notes for Judge Prompts
+
+Judge behavior is not uniform across model families. The Claude/GPT-derived guidance above mostly transfers, but Gemini 2.5 Pro and Gemini 3.x have measured deviations worth handling explicitly when you target them as judges.
+
+**Determinism does not work the way you think.** All frontier judges show low intra-rater reliability ("rating roulette"): a single-pass score on identical input is often inconsistent on repeat runs (Haldar & Hockenmaier, EMNLP 2025). On Gemini 2.5 Pro specifically, fixed `seed` plus low `temperature` does not guarantee reproducible output (Google AI Developers Forum, Jan 2026). Google explicitly documents seed as best-effort. **On Gemini 3.x, T=0 is now actively discouraged** because it can trigger looping or degraded output; the recommended default is T=1.0. This means the standard "set T=0 for reproducible eval" pattern fails on Gemini 3.x.
+
+**Practical defaults for high-stakes judge calls:**
+- **Sample N>=3 with majority vote**, do not trust a single pass. Confidence-weighted majority (CISC) is a stronger variant where available.
+- **For multi-stake or high-stakes ranking, use multi-model consensus** (e.g., Gemini Flash + Claude Sonnet, or GPT + Claude). Family-specific bias structures partially cancel.
+- **Do not assume extended thinking improves judge stability.** No published evidence that Gemini 2.5 Deep Think or Gemini 3.x `thinking_level: HIGH` makes judge verdicts more consistent. Parallel-hypothesis thinking may add variance. Validate against a no-thinking baseline before enabling it on a judge prompt.
+- **Use Gemini judges with caution on nuanced comparisons.** Gemini 2.5 Pro is competitive on easy cases but its consistency degrades roughly 200% on hard pairwise comparisons (Sage benchmark, arxiv 2512.16041). For fine-grained quality differences, multi-sample or human-verify.
+
+These notes do not change the core checklist. They change the deployment pattern around it: same gates, more samples, and family-aware judge selection when stakes are high.
 
 ---
 
@@ -445,6 +462,7 @@ Apply before deploying any prompt to an agent.
 9. **Original task in validation.** Does the validation prompt include the original task at the top AND a reminder at the end?
 10. **One criterion per validation call (high-stakes).** Is each high-stakes evaluation criterion assessed separately? Low-stakes filtering may bundle up to 3 criteria per call.
 11. **Linguistic-analysis path (conditional).** If the prompt evaluates properties of the writing itself (style, register, L1 transfer, authorship, human-vs-AI stylometry), does it: (a) enumerate explicit linguistic feature categories, (b) force reasoning before verdict, (c) require cited token or phrase evidence for each feature? See Section 7. This item is N/A for prompts that are not linguistic evaluations.
+12. **Sampling and determinism for judges (conditional).** If the prompt is a high-stakes judge call, is it run with N>=3 samples and a majority vote rather than a single pass? Does the deployment avoid relying on T=0 + seed for reproducibility (especially on Gemini 2.5 Pro and Gemini 3.x, where T=0 is non-deterministic or actively discouraged)? Where stakes are highest, does it use multi-model consensus rather than a single judge model? See Section 5.8. N/A for low-stakes filtering and for non-judge prompts.
 
 ---
 
