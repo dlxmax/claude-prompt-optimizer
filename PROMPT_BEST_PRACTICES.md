@@ -233,21 +233,14 @@ List any requirement you were unable to fulfill, and why.
 
 ### 3.7 Output-Length Trap in Per-Item Gates
 
-Per-item inline gates (§3.1, §3.6) force the model to emit structured reasoning next to every generated item. That is exactly what makes them work — but it also means the *output* grows linearly with both item count and gate count. When a batch job runs near the model's max output tokens, added gate structure gets silently truncated mid-response and the final items arrive malformed or missing.
+Per-item gates make output grow linearly with item count. Near the response cap, tail items get truncated and the parser silently drops them, so it looks like a format regression rather than a length limit.
 
-Symptoms:
-- Last N items in a batch have incomplete or missing VERDICT lines.
-- Parser regex silently drops tail items, so the issue looks like "the model forgot the format" rather than a length limit.
-- Usually surfaces only after a gate redesign that added per-item reasoning, not at the moment of truncation itself.
-
-Rules of thumb:
-- **Budget the output before adding a gate.** Estimate `items x (lines per item)` in the worst case (all FAIL, all rewrites) and compare to the model's response cap. Do this even if the happy-path output fits comfortably.
-- **Prefer pre-commitment over post-hoc rationalization, not both.** A single visible commitment per item (e.g., a `LOCK:` line before the sentence, or candidate reasoning before the VERDICT) gets most of the rigor. Stacking pre-commitment AND post-hoc self-check on the same item doubles output for marginal gain.
-- **Make the expensive block fire only on FAIL.** A fresh candidate + VERDICT block on every PASS gives the model no new work; reserve it for rewrites, where the model actually has to validate something new. This keeps the bulk cost bounded to the (usually minority) failure path.
-- **Split the call before truncating the gate.** If the gate is load-bearing and the output still does not fit, chain the call (§2.3 "decompose third") instead of dropping rigor. Two calls with full reasoning beat one call with half the items validated.
-- **Treat max-output truncation as a silent data-loss bug.** Log the raw response length, and compare parsed-item count to expected-item count on every batch. A mismatch is almost always the length ceiling, not a prompt-format regression.
-
-Field note: a two-step exam generator with 30 items per call originally proposed a LOCK-before-sentence pre-commitment *and* a per-PASS candidate-reasoning block *and* fresh validation on every REWRITE. Output doubled on the happy path and roughly tripled on the FAIL path, which put a real batch above the response cap. The fix was to keep the fresh-validation block on FAIL only and drop LOCK-before-sentence, which retained the structural rigor (visible per-item reasoning, visible rewrite validation) while staying inside the response budget.
+Rules:
+- **Budget worst-case output** (`items x lines_per_item`, all-FAIL path) against the response cap before adding a gate.
+- **Don't stack pre-commitment and post-hoc self-check** on the same item. One visible commitment per item captures most of the rigor.
+- **Fire the expensive block on FAIL only.** PASS items don't need fresh candidate reasoning; rewrites do.
+- **Split the call before dropping rigor.** If the gate doesn't fit, chain it (§2.3) rather than thin it.
+- **Detect truncation explicitly.** Log raw response length and assert parsed-count equals expected-count on every batch.
 
 ---
 
