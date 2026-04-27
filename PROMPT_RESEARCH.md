@@ -496,9 +496,19 @@ Source: Feng et al., Sage benchmark, arxiv 2512.16041, Dec 2025: arxiv.org/html/
 
 Key finding: Instructing the judge to **generate a task-specific scoring rubric before scoring** improves IPI consistency by **+16.1%** on the Sage benchmark — the largest single improvement measured across all techniques tested. This is a pure prompt-construction change that requires no additional API calls or parameter tuning.
 
-Mechanism: Before asking for the verdict, add a step such as: "First, define a scoring rubric for this criterion: what distinguishes a PASS from a FAIL? List at least three observable features." Then ask for the verdict using that rubric. The self-generated rubric anchors the model's judgment against explicit criteria it has stated, reducing drift across repeated calls.
+Mechanism: The judge model generates its own rubric before scoring. This anchors its judgment against criteria it has committed to, reducing drift across repeated calls. Critical implementation note: the rubric must be generated **by the same model that will judge** (Gemini, in this case), inside the judge prompt — not written externally by a different model (e.g., Claude) and hardcoded. A pre-written rubric from a different model loses the anchoring effect because the judge has not committed to it. The correct pattern is to embed a rubric-generation instruction block in the prompt sent to Gemini:
 
-Implication: For any Gemini judge prompt, add a rubric-generation step before the verdict. This is the highest-return prompt-level change measured, ahead of multi-sampling and multi-model consensus in isolation.
+```
+<rubric_generation>
+Before scoring, define a rubric for this criterion.
+Specify at least three observable features that distinguish a PASS from a FAIL.
+</rubric_generation>
+<scoring>
+Apply that rubric. Rate on a 1–4 scale (1=clear FAIL, 4=clear PASS).
+</scoring>
+```
+
+Implication: When optimizing a judge prompt intended for Gemini, insert this two-step block rather than generating a rubric separately. The prompt optimizer's output should be a revised prompt containing the `<rubric_generation>` instruction — Gemini will execute it at inference time.
 
 ### Multi-Sample Voting: Quantitative Guidance
 

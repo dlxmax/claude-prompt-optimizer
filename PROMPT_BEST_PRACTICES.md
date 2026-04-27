@@ -441,7 +441,22 @@ Judge behavior is not uniform across model families. The Claude/GPT-derived guid
 
 **Prompt-level fixes (apply to the judge prompt itself):**
 
-- **Add a rubric-generation step before the verdict.** This is the single highest-return change measured: +16.1% IPI improvement (Sage benchmark, arxiv 2512.16041). Before asking for a score, add: `"First, define a scoring rubric for this criterion: what observable features distinguish a PASS from a FAIL? List at least three."` Then ask for the verdict using that rubric. No additional API calls required.
+- **Add a rubric-generation step before the verdict.** This is the single highest-return change measured: +16.1% IPI improvement (Sage benchmark, arxiv 2512.16041). The mechanism: Gemini commits to criteria before scoring, which anchors its judgment and reduces drift across repeated calls. The rubric must be generated **by Gemini itself, inside the judge prompt** — not pre-written by Claude or the prompt optimizer and hardcoded. A rubric written externally by a different model and pasted in loses the anchoring effect. The correct implementation is to embed a two-step instruction block in the prompt you send to Gemini:
+
+  ```
+  <rubric_generation>
+  Before scoring, define a rubric for this criterion.
+  Specify at least three observable features that distinguish a PASS from a FAIL.
+  Write the rubric now, then use it to score below.
+  </rubric_generation>
+
+  <scoring>
+  Apply the rubric you just wrote. Score the response on a 1–4 scale:
+  1 = clear FAIL (criterion not met), 2 = partial, 3 = mostly met, 4 = clear PASS.
+  </scoring>
+  ```
+
+  When the prompt optimizer flags a missing rubric step, its output should be a **revised prompt** containing this block — instructions for Gemini to execute, not a pre-filled rubric. No additional API calls required in the optimizer.
 - **Use a small integer rating scale (1–4 or 1–5), not a float or 0–10 scale.** Smaller scales reduce variance. Provide an indicative description for each point on the scale. HuggingFace cookbook: prompt refinements on scale and evaluation ordering improved judge-human correlation from 0.563 to 0.843 (+50%).
 - **Add an `<evaluation>` or `<reasoning>` field before the final verdict.** Forcing the model to surface its reasoning before committing to a score improves stability by approximately 30% (Braintrust/Promptfoo production finding). This applies to all families, not just Gemini.
 - **Do not use debate-style judge prompts (ChatEval pattern).** Two model calls that argue before a verdict are actively harmful: Sage measured worst-case -158% consistency degradation vs. single-judge rubric scoring. Standard CoT (without debate) also shows ~0% consistency improvement for Gemini judges; rubric generation is the effective substitute.
