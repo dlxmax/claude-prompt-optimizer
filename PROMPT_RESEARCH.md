@@ -490,13 +490,25 @@ Key findings:
 
 Implication: Do not assume HIGH thinking on Gemini judges improves verdict stability. Validate against a no-thinking baseline on a small dataset before enabling it on a judge prompt.
 
-### Self-Generated Rubrics: The #1 Prompt-Level Consistency Fix
+### Self-Generated Rubrics: The #1 Prompt-Level Consistency Fix (Universal)
 
-Source: Feng et al., Sage benchmark, arxiv 2512.16041, Dec 2025: arxiv.org/html/2512.16041v1
+Sources:
+- Feng et al., Sage benchmark, arxiv 2512.16041, Dec 2025: arxiv.org/html/2512.16041v1
+- "Rethinking Rubric Generation for Improving LLM Judge", arxiv 2602.05125, 2026
+- RubricBench, arxiv 2603.01562, 2026
 
-Key finding: Instructing the judge to **generate a task-specific scoring rubric before scoring** improves IPI consistency by **+16.1%** on the Sage benchmark — the largest single improvement measured across all techniques tested. This is a pure prompt-construction change that requires no additional API calls or parameter tuning.
+Key findings:
+- Sage benchmark: instructing the judge to generate a rubric before scoring improves IPI consistency by **+16.1%** (aggregate across tested judge models: Prometheus, Skywork, M-Prometheus, JudgeLRM).
+- Rethinking Rubric Generation (RRD, arxiv 2602.05125): rubric improvement is **not Gemini-specific**. GPT-4o gained **+17.7 points** on JudgeBench (55.6%→73.3%) and Llama-3.1-405B gained **+7.4 points** (57.4%→64.8%) from better rubric design.
+- RubricBench (arxiv 2603.01562): the **"Rubric Gap"** — the drop when using self-generated vs. human-written rubrics — is **~26–28 points consistently across Gemini-3-Flash, GPT-4o-mini, and DeepSeek-v3.2**. This is a universal bottleneck; rubric quality, not model reasoning capacity, determines judge consistency.
 
-Mechanism: The judge model generates its own rubric before scoring. This anchors its judgment against criteria it has committed to, reducing drift across repeated calls. Critical implementation note: the rubric must be generated **by the same model that will judge** (Gemini, in this case), inside the judge prompt — not written externally by a different model (e.g., Claude) and hardcoded. A pre-written rubric from a different model loses the anchoring effect because the judge has not committed to it. The correct pattern is to embed a rubric-generation instruction block in the prompt sent to Gemini:
+Rubric source hierarchy:
+1. **Human-written rubrics** — best; ~27 points above self-generated.
+2. **Cross-model rubric generation** — using a stronger or different frontier model to draft the rubric for another judge to apply. RRD shows GPT-4o judging with Gemini-generated rubrics outperforms GPT-4o self-generation; gains scale with sample diversity and quality across model families.
+3. **Self-generated rubric (embedded instruction)** — practical default; free; no extra API call; meaningfully better than no rubric (+16.1% IPI).
+4. **No rubric** — worst; produces uncalibrated holistic judgments.
+
+Mechanism: When the judge model generates its own rubric, it commits to observable criteria before scoring, anchoring judgment and reducing drift across repeated calls. A rubric pre-written externally and hardcoded provides fewer gains because the judge has not committed to it. The practical implementation is to embed a `<rubric_generation>` instruction block in the judge prompt:
 
 ```
 <rubric_generation>
@@ -508,7 +520,7 @@ Apply that rubric. Rate on a 1–4 scale (1=clear FAIL, 4=clear PASS).
 </scoring>
 ```
 
-Implication: When optimizing a judge prompt intended for Gemini, insert this two-step block rather than generating a rubric separately. The prompt optimizer's output should be a revised prompt containing the `<rubric_generation>` instruction — Gemini will execute it at inference time.
+Implication: Add a rubric-generation block to every judge prompt, regardless of model family. For highest-stakes scoring, escalate to cross-model rubric generation or human-written rubrics. Gains scale with model capacity (frontier models benefit more than smaller models).
 
 ### Multi-Sample Voting: Quantitative Guidance
 
@@ -655,6 +667,8 @@ These techniques are orthogonal to prompt construction and compound with rubric 
 | Judging the Judges (position bias systematic study) | ACL/IJCNLP 2025 | arxiv.org/html/2406.07791v7 | 2025 |
 | Gemini 2.5 Thinking Model Updates | Google Devs Blog | developers.googleblog.com/en/gemini-2-5-thinking-model-updates/ | Feb 2026 |
 | Gemini 3 Thinking Mode usage notes | Blog | oneuptime.com/blog/post/2026-02-17-how-to-use-thinking-mode-in-gemini-3-for-complex-reasoning-tasks/view | Feb 2026 |
+| Rethinking Rubric Generation for Improving LLM Judge (RRD) | arxiv | arxiv.org/abs/2602.05125 | 2026 |
+| RubricBench: Aligning Model-Generated Rubrics with Human Standards | arxiv | arxiv.org/abs/2603.01562 | 2026 |
 | Non-Determinism of Deterministic LLM Settings | arxiv | arxiv.org/html/2408.04667v5 | 2025 |
 | Same Input, Different Scores (Gemini variance study) | arxiv | arxiv.org/abs/2603.04417 | 2026 |
 | Confidence Improves Self-Consistency | ACL 2025 Findings | aclanthology.org/2025.findings-acl.1030.pdf | 2025 |
