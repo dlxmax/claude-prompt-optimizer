@@ -463,8 +463,8 @@ Implication: For high-stakes judge calls, sample N>=3 and aggregate by majority 
 Source: Feng et al., "Are We on the Right Way to Assessing LLM-as-a-Judge?" (Sage benchmark), arxiv 2512.16041, Dec 2025: arxiv.org/html/2512.16041v1
 
 Key findings:
-- On Sage local-consistency (IPI) and global-consistency (TOV) metrics, Gemini 2.5 Pro is among the most consistent judges on the easy split.
-- On Sage-Hard (subtle pairwise differences), Gemini 2.5 Pro consistency degrades roughly 200%, matching GPT-5. Even top judges fail ~25% of hard pairwise comparisons.
+- Measured Gemini 2.5 Pro consistency: **68.5% IPI (easy tier)**, **32.5% IPI (hard tier)**. Even the best judge (Gemini 2.5 Pro) fails ~25% of hard pairwise comparisons.
+- On Sage-Hard (subtle pairwise differences), Gemini 2.5 Pro consistency degrades roughly 200%, matching GPT-5.
 - Hyperparameter settings (including temperature) significantly affect judge behavior; results are not stable across configurations.
 
 Implication: Gemini judges are acceptable on obvious distinctions but unreliable on nuanced comparisons. Multi-sample or human-verify on fine-grained quality differences.
@@ -490,13 +490,96 @@ Key findings:
 
 Implication: Do not assume HIGH thinking on Gemini judges improves verdict stability. Validate against a no-thinking baseline on a small dataset before enabling it on a judge prompt.
 
+### Self-Generated Rubrics: The #1 Prompt-Level Consistency Fix
+
+Source: Feng et al., Sage benchmark, arxiv 2512.16041, Dec 2025: arxiv.org/html/2512.16041v1
+
+Key finding: Instructing the judge to **generate a task-specific scoring rubric before scoring** improves IPI consistency by **+16.1%** on the Sage benchmark — the largest single improvement measured across all techniques tested. This is a pure prompt-construction change that requires no additional API calls or parameter tuning.
+
+Mechanism: Before asking for the verdict, add a step such as: "First, define a scoring rubric for this criterion: what distinguishes a PASS from a FAIL? List at least three observable features." Then ask for the verdict using that rubric. The self-generated rubric anchors the model's judgment against explicit criteria it has stated, reducing drift across repeated calls.
+
+Implication: For any Gemini judge prompt, add a rubric-generation step before the verdict. This is the highest-return prompt-level change measured, ahead of multi-sampling and multi-model consensus in isolation.
+
+### Multi-Sample Voting: Quantitative Guidance
+
+Sources:
+- "Do We Truly Need So Many Samples?" arxiv 2504.00762v1 (2025)
+- "Confidence Improves Self-Consistency", ACL 2025 Findings: aclanthology.org/2025.findings-acl.1030.pdf
+- Braintrust / Promptfoo production guidance (2026)
+
+Key findings:
+- **N=3** (minimal baseline): 2-of-3 agreement threshold = 0.66. Insufficient for fine-grained evaluation.
+- **N=5** (industry standard): ~70% variance reduction vs single-pass. Recommended production default.
+- **N>=10** (high-stakes): Diminishing returns beyond 10; rarely needed.
+- **Confidence-weighted voting**: A confidence-weighted approach using 10 samples matches the accuracy of 18.6 unweighted samples — a 46% reduction in API cost with equivalent accuracy.
+- **18–28% of prompts show "decision flips"** across temperature/seed configurations. This is a safety-critical signal: these cases need human review, not just more samples.
+
+Implication: Default to N=5 with majority vote for production judge calls. Use confidence-weighted voting when cost matters. Treat decision-flip cases (inconsistent majority) as ambiguous rather than assigning the plurality verdict.
+
 ### Multi-Model Consensus Beats Single-Model Tuning
 
-Source: Practitioner consensus across 2025 and 2026 eval-platform writeups (Vellum, Braintrust, Langfuse, Promptfoo) summarized in Sage benchmark and Rating Roulette discussions.
+Sources:
+- Feng et al., Sage benchmark, arxiv 2512.16041, Dec 2025.
+- "Same Input, Different Scores", arxiv 2603.04417 (2026).
+- Practitioner consensus: Braintrust, Promptfoo, Langfuse (2025–2026).
 
-Key finding: Combining two or more judges from different families (e.g., Gemini Flash + Claude Sonnet, or Gemini + GPT) reduces single-model bias more than any per-model tuning. Family-specific evaluation personalities partially cancel.
+Key findings:
+- Combining two or more judges from different families (e.g., Gemini 2.5 Pro + Claude Opus 4.5 + GPT-4o) improves IPI consistency by **+7–13%** and achieves **88–96% agreement with human scores** when 2-of-3 judges agree.
+- "Same Input, Different Scores" (arxiv 2603.04417) confirms Gemini shows the **highest variance** among Claude/GPT/Gemini on identical inputs — making it the strongest candidate for multi-model augmentation.
+- Family-specific evaluation personalities partially cancel each other. The recommended ensemble for Gemini-inclusive panels: Gemini Flash or 2.5 Pro + Claude Sonnet/Opus + GPT-4o or GPT-5.
 
-Implication: For high-stakes judge calls, multi-model consensus is the strongest single lever, ahead of parameter tuning, swap-and-count, or thinking-level adjustment.
+Implication: For high-stakes judge calls, pair self-generated rubrics (prompt level) with multi-model consensus (deployment level). Use `assert-set` with `threshold: 0.66` (2-of-3 majority) as the production default.
+
+### Structured Output Reduces Format Variance (Not Semantic Variance)
+
+Sources:
+- Google AI Blog: blog.google/technology/developers/gemini-api-structured-outputs/ (2026)
+- GDELT Project case study: blog.gdeltproject.org/using-gemini-2-5s-structured-outputs-to-enforce-consistent-stable-json-output-for-story-segmentation/ (2025)
+- GitHub Issue #706: github.com/googleapis/python-genai/issues/706
+
+Key findings:
+- Enforcing a JSON Schema (`response_schema`) makes output structurally "nearly flawless" per the GDELT study: required fields always present, enum values in-set, key ordering preserved.
+- **JSON Schema is a format floor, not a semantic guarantee.** A schema-compliant response can still return the wrong category or hallucinate a score.
+- Setting `nullable: true` on fields reduces output errors when the prompt provides insufficient context.
+- **Critical incompatibility:** Structured outputs cannot be combined with the `google_search` grounding tool simultaneously on Gemini 2.5 Pro. Choose one.
+- **Tool-call incompatibility:** Structured outputs fail on Gemini 2.5 when tool calls are present in the message history (works correctly on Gemini 2.0).
+
+Implication: Use JSON Schema to stabilize the structural form of judge verdicts, but do not mistake schema compliance for judgment correctness. Pair with rubric generation and multi-sampling to address semantic variance.
+
+### Techniques That Are Actively Harmful to Gemini Judge Quality
+
+Source: Feng et al., Sage benchmark (arxiv 2512.16041); Haldar & Hockenmaier, Rating Roulette (arxiv 2510.27106)
+
+| Technique | Effect | Evidence |
+|-----------|--------|----------|
+| Debate frameworks (ChatEval-style) | **-158% worst-case consistency** | Sage explicit finding: "debate-based ChatEval frameworks fail to yield an improvement in evaluation quality" |
+| Temperature = 0 | **-3.0pp accuracy** | Rating Roulette: "turning off variance hurts performance" |
+| Extreme parameter tuning (top_k=1, top_p=0) | Invalid / nonsense values | Community expert (Google AI Forum): "Setting top_p=0 means excluding 0% of the probability distribution" |
+| Chain-of-Thought before verdict (standard CoT) | **~0% consistency improvement** | Sage measured CoT as providing no measurable IPI/TOV gain for Gemini judges |
+| Few-shot examples | **0% or negative** | Sage: few-shot prompting produced no measured improvement for Gemini judges; see also Topic 8 on few-shot instability |
+
+Do not use debate-style prompt structures where two judge model calls argue before a verdict (ChatEval pattern). This is the single most harmful configuration measured.
+
+### Root Cause: GPU Floating-Point Arithmetic
+
+Source: Google Cloud Vertex AI documentation; Google AI Developers Forum expert commentary (Jay), Jan 2026.
+
+Key finding: Gemini non-determinism is not a configuration bug. It reflects floating-point arithmetic precision limits on the GPU hardware where the model is hosted. "Computers use finite precision in floating-point arithmetic which can lead to rounding errors that can cascade through calculations, influenced by the hardware (CPU/GPU) the model is hosted on" (Google Cloud docs). A community expert: "Non-determinism, unstable logits, seems to be today's paradigm for some efficiency on the GPU hardware."
+
+Google has no published fix roadmap. Seed is officially documented as "best-effort." This is an architectural trade-off, not a bug.
+
+Implication: Prompt-level and deployment-level mitigations (rubrics, multi-sampling, multi-model consensus, structured output) are the only available levers. There is no parameter combination that guarantees reproducibility.
+
+### Application-Level Caching and Validation Loop
+
+Source: Practitioner recommendations, April 2026.
+
+When determinism at the API level is not guaranteed:
+1. **Cache at the application layer**: Store responses keyed on (model, prompt hash, seed). Return the cached result for identical inputs.
+2. **Post-generation schema validation**: Validate every response against the expected schema; retry with the same seed if validation fails. This converts structural variance into a deterministic error signal.
+3. **Log seed/temperature/model version per request**: Enables reproducibility audits even without true API-level determinism.
+
+These techniques are orthogonal to prompt construction and compound with rubric generation and multi-model consensus.
 
 ---
 
@@ -562,3 +645,13 @@ Implication: For high-stakes judge calls, multi-model consensus is the strongest
 | Judging the Judges (position bias systematic study) | ACL/IJCNLP 2025 | arxiv.org/html/2406.07791v7 | 2025 |
 | Gemini 2.5 Thinking Model Updates | Google Devs Blog | developers.googleblog.com/en/gemini-2-5-thinking-model-updates/ | Feb 2026 |
 | Gemini 3 Thinking Mode usage notes | Blog | oneuptime.com/blog/post/2026-02-17-how-to-use-thinking-mode-in-gemini-3-for-complex-reasoning-tasks/view | Feb 2026 |
+| Non-Determinism of Deterministic LLM Settings | arxiv | arxiv.org/html/2408.04667v5 | 2025 |
+| Same Input, Different Scores (Gemini variance study) | arxiv | arxiv.org/abs/2603.04417 | 2026 |
+| Confidence Improves Self-Consistency | ACL 2025 Findings | aclanthology.org/2025.findings-acl.1030.pdf | 2025 |
+| Do We Truly Need So Many Samples? | arxiv | arxiv.org/html/2504.00762v1 | 2025 |
+| Stable LLM Ensemble | arxiv | arxiv.org/html/2510.13143 | 2025 |
+| GDELT Project: Gemini 2.5 Structured Outputs | Case study | blog.gdeltproject.org/using-gemini-2-5s-structured-outputs-to-enforce-consistent-stable-json-output-for-story-segmentation/ | 2025 |
+| Google AI Blog: Structured Outputs in Gemini API | Blog | blog.google/technology/developers/gemini-api-structured-outputs/ | 2026 |
+| Gemini API Structured Output docs | Docs | ai.google.dev/gemini-api/docs/structured-output | 2026 |
+| Google Cloud: Content Generation Parameters | Docs | docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/content-generation-parameters | 2026 |
+| Gemini 3 Developer Guide | Docs | ai.google.dev/gemini-api/docs/gemini-3 | 2026 |

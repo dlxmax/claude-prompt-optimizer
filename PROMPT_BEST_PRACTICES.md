@@ -20,7 +20,9 @@ These numbers justify the techniques in this document. The headline problem is n
 | LLMLingua-2 compresses prompts 3x to 6x with maintained accuracy | LLMLingua-2, NAACL 2025 | Compress before decomposing when a prompt has grown heavy |
 | All LLM judges show low intra-rater reliability; single-pass judge scores are "almost random" on repeat runs | Rating Roulette, EMNLP 2025 | High-stakes judge calls need N>=3 samples with majority vote, not single-pass |
 | Gemini 2.5 Pro produces different outputs for identical requests with fixed seed and temperature; on Gemini 3.x, T=0 risks looping and degraded output | Google AI Developers Forum (Jan 2026); Gemini 3.x docs | Do not rely on T=0 + seed for judge determinism, especially on Gemini |
-| Gemini 2.5 Pro is strongest on easy judge cases but its consistency degrades ~200% on hard pairwise comparisons (~25% failure rate matches GPT-5) | Sage benchmark, arxiv 2512.16041, Dec 2025 | Multi-sample or human-verify Gemini judges on nuanced comparisons |
+| Gemini 2.5 Pro is strongest on easy judge cases (68.5% IPI) but consistency degrades ~200% on hard cases (32.5% IPI); debate-style judge prompts cause -158% worst-case degradation | Sage benchmark, arxiv 2512.16041, Dec 2025 | Use rubric-generation step before verdict; avoid ChatEval-style debate prompts |
+| Self-generated rubrics improve Gemini judge consistency by +16.1% IPI — the single largest prompt-level improvement measured | Sage benchmark, arxiv 2512.16041, Dec 2025 | Add a rubric-generation step before every judge verdict |
+| Gemini shows the highest single-model variance among Claude/GPT/Gemini families on identical inputs | Same Input, Different Scores, arxiv 2603.04417, 2026 | Multi-model consensus panels most critical for Gemini-inclusive judge setups |
 
 ---
 
@@ -437,13 +439,23 @@ Judge behavior is not uniform across model families. The Claude/GPT-derived guid
 
 **Determinism does not work the way you think.** All frontier judges show low intra-rater reliability ("rating roulette"): a single-pass score on identical input is often inconsistent on repeat runs (Haldar & Hockenmaier, EMNLP 2025). On Gemini 2.5 Pro specifically, fixed `seed` plus low `temperature` does not guarantee reproducible output (Google AI Developers Forum, Jan 2026). Google explicitly documents seed as best-effort. **On Gemini 3.x, T=0 is now actively discouraged** because it can trigger looping or degraded output; the recommended default is T=1.0. This means the standard "set T=0 for reproducible eval" pattern fails on Gemini 3.x.
 
-**Practical defaults for high-stakes judge calls:**
-- **Sample N>=3 with majority vote**, do not trust a single pass. Confidence-weighted majority (CISC) is a stronger variant where available.
-- **For multi-stake or high-stakes ranking, use multi-model consensus** (e.g., Gemini Flash + Claude Sonnet, or GPT + Claude). Family-specific bias structures partially cancel.
-- **Do not assume extended thinking improves judge stability.** No published evidence that Gemini 2.5 Deep Think or Gemini 3.x `thinking_level: HIGH` makes judge verdicts more consistent. Parallel-hypothesis thinking may add variance. Validate against a no-thinking baseline before enabling it on a judge prompt.
-- **Use Gemini judges with caution on nuanced comparisons.** Gemini 2.5 Pro is competitive on easy cases but its consistency degrades roughly 200% on hard pairwise comparisons (Sage benchmark, arxiv 2512.16041). For fine-grained quality differences, multi-sample or human-verify.
+**Prompt-level fixes (apply to the judge prompt itself):**
 
-These notes do not change the core checklist. They change the deployment pattern around it: same gates, more samples, and family-aware judge selection when stakes are high.
+- **Add a rubric-generation step before the verdict.** This is the single highest-return change measured: +16.1% IPI improvement (Sage benchmark, arxiv 2512.16041). Before asking for a score, add: `"First, define a scoring rubric for this criterion: what observable features distinguish a PASS from a FAIL? List at least three."` Then ask for the verdict using that rubric. No additional API calls required.
+- **Use a small integer rating scale (1–4 or 1–5), not a float or 0–10 scale.** Smaller scales reduce variance. Provide an indicative description for each point on the scale. HuggingFace cookbook: prompt refinements on scale and evaluation ordering improved judge-human correlation from 0.563 to 0.843 (+50%).
+- **Add an `<evaluation>` or `<reasoning>` field before the final verdict.** Forcing the model to surface its reasoning before committing to a score improves stability by approximately 30% (Braintrust/Promptfoo production finding). This applies to all families, not just Gemini.
+- **Do not use debate-style judge prompts (ChatEval pattern).** Two model calls that argue before a verdict are actively harmful: Sage measured worst-case -158% consistency degradation vs. single-judge rubric scoring. Standard CoT (without debate) also shows ~0% consistency improvement for Gemini judges; rubric generation is the effective substitute.
+- **Use JSON Schema to constrain output structure.** `response_schema` makes output structurally reliable ("nearly flawless" per GDELT study) — required fields always present, enums in-set. This is a format floor, not a semantic guarantee. **Incompatibility note:** Cannot combine structured output with the `google_search` grounding tool simultaneously on Gemini 2.5 Pro. Choose one. Also: structured outputs fail on Gemini 2.5 when tool calls are in the message history.
+
+**Deployment-level fixes (sampling and model selection):**
+
+- **Default to N=5 majority vote** for production judge calls (~70% variance reduction). N=3 is a minimum baseline; N>=10 has diminishing returns. Confidence-weighted voting achieves the same accuracy as N=18.6 using only N=10 samples (46% cost saving) — prefer it when cost matters.
+- **Treat decision flips as ambiguous.** 18–28% of Gemini judge calls show inconsistent majority across seeds/temperatures. Flag these for human review rather than assigning the plurality verdict.
+- **For multi-stake ranking, use multi-model consensus** (e.g., Gemini 2.5 Pro + Claude Opus 4.5 + GPT-4o with 2-of-3 majority). Achieves 88–96% agreement with human scores. Gemini shows the highest single-model variance among major families (arxiv 2603.04417), so it benefits the most from panel augmentation.
+- **Do not assume extended thinking improves judge stability.** No published evidence that Gemini 2.5 Deep Think or Gemini 3.x `thinking_level: HIGH` makes judge verdicts more consistent. Parallel-hypothesis thinking may add variance. Validate against a no-thinking baseline before enabling it on a judge prompt.
+- **Use Gemini judges with caution on nuanced comparisons.** Measured consistency: 68.5% IPI (easy tier), 32.5% (hard tier). For fine-grained quality differences, multi-sample or human-verify.
+
+These notes do not change the core checklist. They change the deployment pattern around it: same gates, rubric-first prompts, more samples, and family-aware judge selection when stakes are high.
 
 ---
 
@@ -462,7 +474,7 @@ Apply before deploying any prompt to an agent.
 9. **Original task in validation.** Does the validation prompt include the original task at the top AND a reminder at the end?
 10. **One criterion per validation call (high-stakes).** Is each high-stakes evaluation criterion assessed separately? Low-stakes filtering may bundle up to 3 criteria per call.
 11. **Linguistic-analysis path (conditional).** If the prompt evaluates properties of the writing itself (style, register, L1 transfer, authorship, human-vs-AI stylometry), does it: (a) enumerate explicit linguistic feature categories, (b) force reasoning before verdict, (c) require cited token or phrase evidence for each feature? See Section 7. This item is N/A for prompts that are not linguistic evaluations.
-12. **Sampling and determinism for judges (conditional).** If the prompt is a high-stakes judge call, is it run with N>=3 samples and a majority vote rather than a single pass? Does the deployment avoid relying on T=0 + seed for reproducibility (especially on Gemini 2.5 Pro and Gemini 3.x, where T=0 is non-deterministic or actively discouraged)? Where stakes are highest, does it use multi-model consensus rather than a single judge model? See Section 5.8. N/A for low-stakes filtering and for non-judge prompts.
+12. **Sampling and determinism for judges (conditional).** If the prompt is a high-stakes judge call: (a) Does it include a rubric-generation step before the verdict? (b) Does it use a small integer rating scale (1–4) with an indicative description per point? (c) Does it include an `<evaluation>` or `<reasoning>` field before the verdict? (d) Is it run with N>=5 samples and majority vote (not single-pass)? (e) Does the deployment avoid relying on T=0 + seed for reproducibility on Gemini? (f) For highest-stakes ranking, does it use multi-model consensus (2-of-3 threshold) rather than a single judge model? (g) Is it **not** using a debate-style (ChatEval) prompt structure? See Section 5.8. N/A for low-stakes filtering and non-judge prompts.
 
 ---
 
