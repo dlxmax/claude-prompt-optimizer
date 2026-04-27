@@ -19,10 +19,10 @@ Most LLM prompts are written by feel. Frontier models in April 2026 do not refus
 When invoked, the prompt-optimizer agent:
 
 1. Reads `PROMPT_BEST_PRACTICES.md` (bundled)
-2. Scores your prompt against a **12-item checklist**
+2. Scores your prompt against a **13-item checklist**
 3. Returns a **revised version** with every violation fixed and annotated
 
-### The 12-Item Checklist
+### The 13-Item Checklist
 
 | # | Item | What it checks |
 |---|---|---|
@@ -37,9 +37,10 @@ When invoked, the prompt-optimizer agent:
 | 9 | Original task in validation | Validation includes original task + end reminder |
 | 10 | One criterion per call (high-stakes) | High-stakes scoring isolates each criterion; low-stakes may bundle up to 3 |
 | 11 | Linguistic-analysis path | If the prompt evaluates properties of writing itself: enumerate features, reason before verdict, cite evidence |
-| 12 | Sampling and determinism for judges | High-stakes judges use N>=3 sampling + majority vote; do not rely on T=0 + seed (broken on Gemini 2.5/3.x); prefer multi-model consensus when stakes warrant |
+| 12 | **Judge prompt: self-generated rubric** ★ | Judge model generates its own rubric before scoring — highest single-change ROI (+16.1% IPI); small integer scale (1–4); `<reasoning>` field before verdict |
+| 13 | Judge prompt: sampling and anti-patterns | N>=5 majority vote; no debate-style (ChatEval) prompts; no T=0+seed on Gemini; multi-model consensus for highest-stakes ranking |
 
-Items 8 to 10 only apply to validation or second-pass prompts. Item 11 only applies to linguistic-analysis prompts (style, register, L1 transfer, authorship, human-vs-AI stylometry, genre fit). Item 12 only applies to high-stakes judge prompts.
+Items 8 to 10 only apply to validation or second-pass prompts. Item 11 only applies to linguistic-analysis prompts. Item 12 applies to any judge prompt (always check). Item 13 applies to high-stakes judge deployments.
 
 ## Installation
 
