@@ -2,7 +2,7 @@
 
 A Claude Code agent that scores and revises LLM prompts against a research-backed checklist, refreshed April 2026 for current frontier models. The goal is prompts the model actually executes instead of silently skipping over directives.
 
-**Primary workflow:** Use this agent inside Claude Code to optimize prompts that will be sent to Gemini (or any other LLM). The optimizer runs on Claude, which means when it writes a rubric for a Gemini judge prompt, Claude is authoring the rubric and Gemini applies it — a cross-model rubric generation pattern that research shows equals or outperforms same-model self-generation.
+**Primary workflow:** Use this agent inside Claude Code to optimize prompts that will be sent to Gemma 4 (or any other LLM). The optimizer runs on Claude, which means when it writes a rubric for a Gemma 4 judge prompt, Claude is authoring the rubric and Gemma 4 applies it — a cross-model rubric generation pattern that research shows equals or outperforms same-model self-generation.
 
 ## The Problem
 
@@ -15,23 +15,24 @@ Most LLM prompts are written by feel. Frontier models in April 2026 do not refus
 - **GPT-4 reaches 91.7% zero-shot** on native-language identification when the prompt names the linguistic features to attend to. Linguistic analysis prompts need their own playbook. (Lotfi et al.)
 - **~29% sycophancy reduction** is achievable through prompt structure alone, no fine-tuning required. (sparkco.ai)
 - **A concrete rubric is the single highest-return change for judge prompts** — GPT-4o +17.7 pts on JudgeBench, Llama-405B +7.4 pts, Sage aggregate +16.1% IPI. A ~27-point "Rubric Gap" (self-generated vs. human rubrics) is consistent across Gemini, GPT, and DeepSeek. (Rethinking Rubric Generation 2026; RubricBench 2026; Sage Dec 2025)
-- **All frontier judges are unreliable on a single pass** ("rating roulette"). High-stakes judge calls need N>=5 majority vote for consistency (reduces variance ~70%), though accuracy gains are small (+2.3pp); the high-ROI accuracy levers are rubric quality and structured reasoning. On Gemini 2.5 Pro, T=0 + seed is not reproducible (seed is best-effort). On Gemini 3.1 Pro, T=0 is actively discouraged (risks looping and degraded output); T=1.0 is the recommended default. Debate-style prompts (ChatEval) are actively harmful: -158% worst-case consistency. Multi-model consensus is the strongest deployment lever. (Rating Roulette EMNLP 2025; Sage Dec 2025; Google AI Forum Jan 2026)
+- **All frontier judges are unreliable on a single pass** ("rating roulette"). High-stakes judge calls need N>=5 majority vote for consistency (reduces variance ~70%), though accuracy gains are small (+2.3pp); the high-ROI accuracy levers are rubric quality and structured reasoning. For Gemma 4 targets: use T=1.0 (not T=0); strip thinking tokens from multi-turn history before passing back when thinking mode is active; avoid 26B A4B for tool-calling workflows (double tool-call bug); validate thinking mode against a no-thinking baseline before enabling for judge calls. Debate-style prompts (ChatEval) are actively harmful: -158% worst-case consistency. Multi-model consensus is the strongest deployment lever. (Rating Roulette EMNLP 2025; Sage Dec 2025; Google Gemma 4 Technical Report 2026)
 
-## Claude + Gemini Workflow
+## Claude + Gemma 4 Workflow
 
-This optimizer runs on Claude. When it fixes a prompt you will send to Gemini, two things happen that the research validates:
+This optimizer runs on Claude. When it fixes a prompt you will send to Gemma 4, two things happen that the research validates:
 
-**For judge prompts:** The optimizer writes a concrete rubric directly into the revised prompt. This is cross-model rubric generation (Claude authors, Gemini applies) — shown by the Rethinking Rubric Generation paper (arxiv 2602.05125) to be at least as effective as same-model self-generation, and often better. The embedded `<rubric_generation>` instruction block (asking Gemini to generate its own rubric at inference time) is the right path only when the criterion must adapt per-input at runtime.
+**For judge prompts:** The optimizer writes a concrete rubric directly into the revised prompt. This is cross-model rubric generation (Claude authors, Gemma 4 applies) — shown by the Rethinking Rubric Generation paper (arxiv 2602.05125) to be at least as effective as same-model self-generation, and often better. The embedded `<rubric_generation>` instruction block (asking Gemma 4 to generate its own rubric at inference time) is the right path only when the criterion must adapt per-input at runtime.
 
-**For Gemini non-determinism:** Gemini 2.5 Pro and Gemini 3.1 Pro have weaker determinism guarantees than Claude or GPT. On 2.5 Pro, seed is best-effort and T=0 does not guarantee reproducibility. On 3.1 Pro, T=0 is actively discouraged (risks looping and degraded output); the recommended default is T=1.0. Debate-style judge prompts are actively harmful on both versions. The checklist catches these patterns and flags the deployment-level fixes (N>=5 sampling, structured output, multi-model consensus). See the Gemini-specific notes in Section 5.8 of `PROMPT_BEST_PRACTICES.md`.
+**For Gemma 4 deployment specifics:** Gemma 4 uses `<|turn>` / `<turn|>` control tokens (not XML) — `apply_chat_template()` is mandatory. T=0 is not recommended; use T=1.0. The 26B A4B variant has a double tool-call bug; avoid it for tool-calling workflows. System prompt authority weakens as context fills. JSON adherence is Gemma 4's primary weakness — use `VERDICT:` keyword extraction over JSON for structured output. Thinking mode (`<|think|>`) requires stripping thinking tokens from multi-turn history before passing back. Prompt injection defense matters more than with closed models: Gemma 4's strong instruction-following makes it susceptible to injections that mimic system-level directives. The checklist catches these patterns and flags the deployment-level fixes. See the Gemma 4 notes throughout `PROMPT_BEST_PRACTICES.md`.
 
 ## What This Agent Does
 
 When invoked, the prompt-optimizer agent:
 
-1. Reads `PROMPT_BEST_PRACTICES.md` (bundled)
-2. Scores your prompt against a **15-item checklist**
-3. Returns a **revised version** with every violation fixed and annotated
+1. Reads the prompt under review
+2. Scores against the **15-item checklist** (embedded — no file I/O needed for scoring)
+3. Loads only the relevant sections of `PROMPT_BEST_PRACTICES.md` for any failing items that require technique detail (lazy — skipped entirely if all items pass)
+4. Returns a **revised version** with every violation fixed and annotated
 
 ### The 15-Item Checklist
 
@@ -49,7 +50,7 @@ When invoked, the prompt-optimizer agent:
 | 10 | One criterion per call (high-stakes) | High-stakes scoring isolates each criterion; low-stakes may bundle up to 3 |
 | 11 | Linguistic-analysis path | If the prompt evaluates properties of writing itself: enumerate features, reason before verdict, cite evidence |
 | 12 | **Judge prompt: rubric** ★ | Optimizer writes a concrete rubric directly (cross-model generation); or embeds `<rubric_generation>` instruction if criterion is dynamic. Small integer scale (1–4); `<reasoning>` field before verdict; verdict/reasoning consistency instruction; calibration anchor. Highest single-change ROI. |
-| 13 | Judge prompt: sampling and anti-patterns | N>=5 majority vote (consistency lever, not accuracy); no debate-style (ChatEval) prompts; on Gemini 2.5 Pro T=0+seed is unreliable; on Gemini 3.1 Pro T=0 is actively discouraged (use T=1.0); multi-model consensus for highest-stakes ranking |
+| 13 | Judge prompt: sampling and anti-patterns | N>=5 majority vote (consistency lever, not accuracy); no debate-style (ChatEval) prompts; for Gemma 4: use T=1.0, strip thinking tokens from history, avoid 26B A4B for tool-calling; multi-model consensus for highest-stakes ranking |
 | 14 | **Escape hatch elimination** | No softening language ("try to," "if possible," "when appropriate," etc.) in any directive — applies to every prompt |
 | 15 | Prompt injection defense | User-submitted content inside labeled delimiter block with explicit "treat as data" instruction (conditional: only when prompt evaluates user-submitted text) |
 
@@ -112,7 +113,7 @@ The agent triggers automatically when you write or revise LLM prompts (if auto-i
 [ ] One criterion per call: 3 criteria bundled in one high-stakes prompt
 [N/A] Linguistic-analysis path: evaluates content, not writing properties
 [ ] Judge prompt — rubric: no rubric present; will write concrete criteria for each score level
-[ ] Judge prompt — sampling: single-pass design; N>=5 needed; Gemini 2.5 Pro T=0+seed unreliable; Gemini 3.1 Pro T=0 discouraged
+[ ] Judge prompt — sampling: single-pass design; N>=5 needed; for Gemma 4: use T=1.0, strip thinking tokens from history, avoid 26B A4B
 [ ] Escape hatch elimination: 3 directives use "try to" or "if possible"
 [N/A] Prompt injection defense: evaluates fixed test content, not user-submitted text
 
@@ -126,7 +127,7 @@ The agent triggers automatically when you write or revise LLM prompts (if auto-i
 - Added skeptical role framing at end of prompt (item 6)
 - Wrote rubric with observable 1-4 criteria directly into the prompt (item 12)
 - Added verdict/reasoning consistency instruction and calibration anchor (item 12)
-- Added note: run N=5 with majority vote for consistency; Gemini version-specific T=0 guidance (item 13)
+- Added note: run N=5 with majority vote for consistency; Gemma 4-specific deployment guidance (item 13)
 - Replaced 3 escape hatches with direct imperatives (item 14)
 
 ## Revised Prompt
@@ -154,9 +155,8 @@ The agent triggers automatically when you write or revise LLM prompts (if auto-i
 - [Native Language Identification with LLMs (Lotfi et al.)](https://arxiv.org/abs/2312.07819): GPT-4 zero-shot 91.7% TOEFL11
 - [Rating Roulette, EMNLP 2025](https://arxiv.org/pdf/2510.27106): single-pass judges unreliable; N>=5 needed
 - [Sage benchmark, Dec 2025](https://arxiv.org/html/2512.16041v1): rubric generation +16.1% IPI; debate prompts -158%; Gemini degrades 200% on hard cases
-- [Google AI Forum: Gemini 2.5 Pro non-determinism, Jan 2026](https://discuss.ai.google.dev/t/the-gemini-api-is-exhibiting-non-deterministic-behavior-for-the-gemini-2-5-pro-model-it-is-producing-different-outputs-for-identical-requests-even-when-a-fixed-seed-is-provided-along-with-a-constant-temperature-this-behavior-has-been-reliably-rep/101331): T=0 + seed is not reproducible; seed is best-effort
-- [Gemini 3.1 Pro thinking model updates, Feb 2026](https://developers.googleblog.com/en/gemini-2-5-thinking-model-updates/): T=1.0 recommended default on Gemini 3.1 Pro; T=0 risks looping
-- [Judging the Judges, ACL/IJCNLP 2025](https://arxiv.org/html/2406.07791v7): Gemini position bias is incoherent; swap-and-count less effective
+- [Google Gemma 4 Technical Report, 2026](https://storage.googleapis.com/deepmind-media/gemma/gemma4-report.pdf): `<|turn>` control tokens, apply_chat_template mandatory, T=1.0 recommended, 26B A4B double tool-call bug, JSON adherence weakness, injection susceptibility
+- [Judging the Judges, ACL/IJCNLP 2025](https://arxiv.org/html/2406.07791v7): position bias is incoherent; swap-and-count less effective
 
 **Still load-bearing:**
 - [AGENTIF](https://arxiv.org/abs/2505.16944): NeurIPS 2025 decomposition finding (headline numbers superseded by IFBench 2026)
