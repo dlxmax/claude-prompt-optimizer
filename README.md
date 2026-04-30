@@ -2,7 +2,7 @@
 
 A Claude Code agent that scores and revises LLM prompts against a research-backed checklist, refreshed April 2026 for current frontier models. The goal is prompts the model actually executes instead of silently skipping over directives.
 
-**Primary workflow:** Use this agent inside Claude Code to optimize prompts that will be sent to Gemma 4 (or any other LLM). The optimizer runs on Claude, which means when it writes a rubric for a Gemma 4 judge prompt, Claude is authoring the rubric and Gemma 4 applies it — a cross-model rubric generation pattern that research shows equals or outperforms same-model self-generation.
+**Primary workflow:** Use this agent inside Claude Code to optimize prompts for any LLM — Claude, GPT, Gemma 4, or others. The optimizer runs on Claude; when it writes a rubric for a judge prompt, Claude is authoring the rubric and the target model applies it (cross-model rubric generation), which research shows equals or outperforms same-model self-generation. Model-specific guidance (Gemma 4, Gemini, Claude) is baked into the checklist and applied when a `Target model:` is declared.
 
 ## The Problem
 
@@ -17,13 +17,17 @@ Most LLM prompts are written by feel. Frontier models in April 2026 do not refus
 - **A concrete rubric is the single highest-return change for judge prompts** — GPT-4o +17.7 pts on JudgeBench, Llama-405B +7.4 pts, Sage aggregate +16.1% IPI. A ~27-point "Rubric Gap" (self-generated vs. human rubrics) is consistent across Gemini, GPT, and DeepSeek. (Rethinking Rubric Generation 2026; RubricBench 2026; Sage Dec 2025)
 - **All frontier judges are unreliable on a single pass** ("rating roulette"). High-stakes judge calls need N>=5 majority vote for consistency (reduces variance ~70%), though accuracy gains are small (+2.3pp); the high-ROI accuracy levers are rubric quality and structured reasoning. For Gemma 4 targets: use T=1.0 (not T=0); strip thinking tokens from multi-turn history before passing back when thinking mode is active; avoid 26B A4B for tool-calling workflows (double tool-call bug); validate thinking mode against a no-thinking baseline before enabling for judge calls. Debate-style prompts (ChatEval) are actively harmful: -158% worst-case consistency. Multi-model consensus is the strongest deployment lever. (Rating Roulette EMNLP 2025; Sage Dec 2025; Google Gemma 4 Technical Report 2026)
 
-## Claude + Gemma 4 Workflow
+## Multi-Model Workflow
 
-This optimizer runs on Claude. When it fixes a prompt you will send to Gemma 4, two things happen that the research validates:
+This optimizer runs on Claude and targets any LLM. Declare `Target model: <name>` in your call to activate model-specific checklist notes.
 
-**For judge prompts:** The optimizer writes a concrete rubric directly into the revised prompt. This is cross-model rubric generation (Claude authors, Gemma 4 applies) — shown by the Rethinking Rubric Generation paper (arxiv 2602.05125) to be at least as effective as same-model self-generation, and often better. The embedded `<rubric_generation>` instruction block (asking Gemma 4 to generate its own rubric at inference time) is the right path only when the criterion must adapt per-input at runtime.
+**Universal (all targets):** The optimizer writes a concrete rubric directly into the revised judge prompt — cross-model rubric generation (Claude authors, target applies), shown by the Rethinking Rubric Generation paper (arxiv 2602.05125) to equal or outperform same-model self-generation. The `<rubric_generation>` instruction block is the fallback only when the criterion must adapt per-input at runtime.
 
-**For Gemma 4 deployment specifics:** Gemma 4 uses `<|turn>` / `<turn|>` control tokens (not XML) — `apply_chat_template()` is mandatory. T=0 is not recommended; use T=1.0. The 26B A4B variant has a double tool-call bug; avoid it for tool-calling workflows. System prompt authority weakens as context fills. JSON adherence is Gemma 4's primary weakness — use `VERDICT:` keyword extraction over JSON for structured output. Thinking mode (`<|think|>`) requires stripping thinking tokens from multi-turn history before passing back. Prompt injection defense matters more than with closed models: Gemma 4's strong instruction-following makes it susceptible to injections that mimic system-level directives. The checklist catches these patterns and flags the deployment-level fixes. See the Gemma 4 notes throughout `PROMPT_BEST_PRACTICES.md`.
+**Gemma 4 (`Target model: Gemma 4`):** `<|turn>` / `<turn|>` control tokens — `apply_chat_template()` mandatory. T=1.0 recommended (not T=0). 26B A4B has a double tool-call bug; use 12B or 27B dense. JSON adherence is the primary weakness — prefer `VERDICT:` keyword extraction. Thinking mode (`<|think|>`) requires stripping thinking tokens from history before passing back. Strong instruction-following increases injection risk; delimiter blocks with explicit data-only instructions are required.
+
+**Gemini (`Target model: Gemini 2.5 Pro` / `Gemini 3.1 Pro`):** T=0 + seed is not reproducible on 2.5 Pro (seed is best-effort). T=0 is actively discouraged on 3.1 Pro (use T=1.0). Debate-style prompts (ChatEval) are actively harmful. Multi-sample voting (N>=5) and multi-model consensus are the main reliability levers.
+
+**Claude (`Target model: Claude Sonnet 4.6` / `Claude Opus 4.7`):** XML tags and document-first ordering per Anthropic official guidance. Second-pass validation needs the "Wait" prefix and original-task anchor. Extended thinking is already embedded; do not add an extra reasoning pass.
 
 ## What This Agent Does
 
